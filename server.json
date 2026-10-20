@@ -1,0 +1,54 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.j4flmao/slim-sheet",
+  "title": "slim-sheet",
+  "description": "Spreadsheet MCP for any agent: reads xlsx/xls/ods/csv, SQL, cleaning, formulas, safe edits",
+  "repository": {
+    "url": "https://github.com/j4flmao/slim-sheet",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "slim-sheet",
+      "version": "0.1.0",
+      "runtimeHint": "uvx",
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SLIM_SHEET_TIER",
+          "description": "Tool tier: lite (7 tools, small models), standard (16) or full (28)",
+          "isRequired": false,
+          "default": "standard"
+        },
+        {
+          "name": "SLIM_SHEET_ROOTS",
+          "description": "Folders the server may read and write, separated by the OS path separator",
+          "isRequired": false
+        },
+        {
+          "name": "SLIM_SHEET_MAX_TOKENS",
+          "description": "Default response budget in tokens",
+          "isRequired": false,
+          "default": "1500"
+        },
+        {
+          "name": "SLIM_SHEET_PASSWORD",
+          "description": "Password for encrypted workbooks (needs the crypto extra)",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+.venv/
+.git/
+.claude/
+.slim-sheet/
+evals/
+tests/
+scripts/
+dist/
+**/__pycache__/
+*.pyc
+PLAN.md
+AGENTS.md
+CLAUDE.md
+server.json

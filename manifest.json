@@ -1,0 +1,185 @@
+{
+  "manifest_version": "0.4",
+  "name": "slim-sheet",
+  "display_name": "slim-sheet",
+  "version": "0.1.0",
+  "description": "Universal, token-frugal spreadsheet MCP server and CLI for any agent, from local 7B models to frontier models.",
+  "long_description": "Reads xlsx, xls, xlsb, ods, Numbers, csv, parquet and json locally. Token-budgeted output, SQL over sheets, cleaning, anomaly detection, a formula copilot and Excel-correct editing. Edits go to a .slim copy unless you allow overwriting, and every change can be undone.",
+  "author": {
+    "name": "j4flmao",
+    "email": "j4flmao@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/j4flmao/slim-sheet"
+  },
+  "homepage": "https://github.com/j4flmao/slim-sheet",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "excel",
+    "xlsx",
+    "spreadsheet",
+    "duckdb",
+    "llm",
+    "agent",
+    "ollama",
+    "lm-studio"
+  ],
+  "server": {
+    "type": "uv",
+    "entry_point": "src/slim_sheet/serve.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}",
+        "src/slim_sheet/serve.py"
+      ],
+      "env": {
+        "SLIM_SHEET_TIER": "${user_config.tier}",
+        "SLIM_SHEET_ROOTS": "${user_config.data_folder}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "overview",
+      "description": "Map a spreadsheet file: sheets, used ranges, header row, column names and types. Call this first. Example: overview(path='sales.xlsx')"
+    },
+    {
+      "name": "read",
+      "description": "Read cells as a table with A1 coordinates. Optional sheet, range like 'A1:F50', cursor from a previous read, format markdown|tsv|json."
+    },
+    {
+      "name": "find",
+      "description": "Find cells containing text (or a regex) across sheets; returns Sheet!A1 addresses. Example: find(path='sales.xlsx', text='refund')"
+    },
+    {
+      "name": "query",
+      "description": "Run one read-only SQL SELECT; tables are sheet names, quote names with spaces. Example: sql='SELECT \"Region\", sum(\"Total\") FROM \"Orders\" GROUP BY 1'"
+    },
+    {
+      "name": "profile",
+      "description": "Column statistics for a sheet: type, nulls, distinct, min, max, mean, median, top values. Optional columns list."
+    },
+    {
+      "name": "write",
+      "description": "Write a 2-D values array starting at range's top-left cell, e.g. values=[['Total', 120]]. Saves to <name>.slim.xlsx unless overwrite=true."
+    },
+    {
+      "name": "explain_formula",
+      "description": "Explain and check an Excel formula: steps, references, syntax/arity errors. Pass formula='=...' or path plus cell like 'Sheet1!C7'."
+    },
+    {
+      "name": "clean",
+      "description": "Clean a table: ops from trim, collapse_spaces, remove_nonprintable, unify_null, numbers_from_text, normalize_dates, drop_empty_rows, drop_empty_cols, dedupe. Previews unless apply=true."
+    },
+    {
+      "name": "anomalies",
+      "description": "Find suspicious cells: duplicate keys, wrong types, outliers, spelling variants, bad dates, stray spaces. Returns Sheet!A1 addresses."
+    },
+    {
+      "name": "merge",
+      "description": "Join two tables on keys (how=left|inner|full|anti) and count unmatched rows on both sides. keys=['ID'] or ['ID=Order No']. out_path saves the result."
+    },
+    {
+      "name": "convert",
+      "description": "Convert a file to xlsx, csv, tsv, parquet or json (by out_path extension). Reads xls, xlsb, ods, csv and more."
+    },
+    {
+      "name": "diff",
+      "description": "Compare two files cell by cell, or row by row with key='ID'. Example: diff(path='a.xlsx', other_path='a.slim.xlsx')"
+    },
+    {
+      "name": "undo",
+      "description": "Undo the last slim-sheet write to a file (write, clean, convert or merge output)."
+    },
+    {
+      "name": "validate_formula",
+      "description": "Check a formula before writing it: syntax, unknown functions, Excel version (target='2016' or 'xls'), missing sheets/names. Gives fixes."
+    },
+    {
+      "name": "evaluate",
+      "description": "Calculate a formula offline, alone or against a workbook. Example: evaluate(path='x.xlsx', cell='Calc!C7') or evaluate(formula='=ROUND(2.5,0)')"
+    },
+    {
+      "name": "describe_cell",
+      "description": "Everything about one cell: value, formula, number format, font, fill, comment, validation, merge. Example: describe_cell(path='x.xlsx', cell='Sheet1!B2')"
+    },
+    {
+      "name": "create_workbook",
+      "description": "Create a new empty .xlsx with the given sheet names. Example: create_workbook(path='out.xlsx', sheets=['Data','Summary'])"
+    },
+    {
+      "name": "sheet_ops",
+      "description": "Add, rename, delete, copy, move, hide or unhide a sheet (op=...). Renames also fix formulas that point to the sheet."
+    },
+    {
+      "name": "rows_ops",
+      "description": "Insert or delete rows/columns (op=insert_rows|delete_rows|insert_cols|delete_cols, at='5' or 'C', count). Formulas, merges, names are shifted like Excel."
+    },
+    {
+      "name": "name_ops",
+      "description": "List, add or delete defined names. Example: name_ops(path, op='add', name='TaxRate', ref='Rates!B2')"
+    },
+    {
+      "name": "format_range",
+      "description": "Style a range: bold, italic, font_color, fill_color ('yellow' or '#FFEB9C'), number_format ('currency', 'percent', 'date' or custom), align, wrap, border, autofit."
+    },
+    {
+      "name": "set_table",
+      "description": "Turn a range with a header row into a named Excel table. Example: set_table(path, sheet='Data', range='A1:D50', name='Sales')"
+    },
+    {
+      "name": "add_validation",
+      "description": "Add a dropdown or rule: type=list (values=[...]), whole, decimal, date, text_length (min/max) or custom (formula)."
+    },
+    {
+      "name": "conditional_format",
+      "description": "Highlight cells by rule: greater_than, less_than, between, equal, text_contains, duplicates, top_n, color_scale, data_bar, formula."
+    },
+    {
+      "name": "add_chart",
+      "description": "Insert a chart (column, bar, line, pie, area, scatter) from data_range: header row + category column + series columns."
+    },
+    {
+      "name": "pivot",
+      "description": "Summarise a table: rows=['Region'], values=['Total'], agg=sum|count|avg|min|max, optional columns='Month'. Save with out_path or to_sheet."
+    },
+    {
+      "name": "split",
+      "description": "Split a table by a column's values into sheets of one workbook (mode=sheets) or separate files (mode=files)."
+    },
+    {
+      "name": "recalc",
+      "description": "Recalculate every formula with LibreOffice so cached values are fresh (needs LibreOffice installed)."
+    }
+  ],
+  "user_config": {
+    "data_folder": {
+      "type": "directory",
+      "title": "Data folder",
+      "description": "Folder with the spreadsheets slim-sheet may read and write",
+      "required": true
+    },
+    "tier": {
+      "type": "string",
+      "title": "Tool tier",
+      "description": "lite (7 tools), standard (16) or full (28)",
+      "default": "standard",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "python": ">=3.11"
+    }
+  }
+}
