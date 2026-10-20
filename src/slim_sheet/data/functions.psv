@@ -1,0 +1,527 @@
+# Excel function catalog. NAME|min_args|max_args(-1=variadic)|signature|summary|first version
+# version: blank = available in Excel 2003 (.xls); 2007/2010/2013/2016/2019/2021/365 = introduced then.
+# ---- logical
+AND|1|-1|logical1, ...|TRUE if all arguments are TRUE|
+BYCOL|2|2|array, lambda|Apply a LAMBDA to each column|365
+BYROW|2|2|array, lambda|Apply a LAMBDA to each row|365
+FALSE|0|0||Logical FALSE|
+IF|2|3|logical_test, value_if_true, [value_if_false]|Choose by condition|
+IFERROR|2|2|value, value_if_error|Fallback when value is an error|2007
+IFNA|2|2|value, value_if_na|Fallback when value is #N/A|2013
+IFS|2|-1|test1, value1, ...|First value whose test is TRUE|2019
+ISOMITTED|1|1|argument|TRUE if a LAMBDA argument is missing|365
+LAMBDA|1|-1|parameter1, ..., calculation|Define a reusable function|365
+LET|3|-1|name1, value1, ..., calculation|Name intermediate results|2021
+MAKEARRAY|3|3|rows, cols, lambda|Build an array from a LAMBDA|365
+MAP|2|-1|array1, ..., lambda|Map a LAMBDA over arrays|365
+NOT|1|1|logical|Logical negation|
+OR|1|-1|logical1, ...|TRUE if any argument is TRUE|
+REDUCE|3|3|initial_value, array, lambda|Fold an array with a LAMBDA|365
+SCAN|3|3|initial_value, array, lambda|Running fold with a LAMBDA|365
+SWITCH|3|-1|expression, value1, result1, ..., [default]|Match a value against cases|2019
+TRUE|0|0||Logical TRUE|
+XOR|1|-1|logical1, ...|Exclusive OR|2013
+# ---- lookup & reference
+ADDRESS|2|5|row_num, column_num, [abs_num], [a1], [sheet_text]|Cell address as text|
+AREAS|1|1|reference|Number of areas in a reference|
+CHOOSE|2|-1|index_num, value1, ...|Pick a value by position|
+CHOOSECOLS|2|-1|array, col_num1, ...|Return chosen columns|365
+CHOOSEROWS|2|-1|array, row_num1, ...|Return chosen rows|365
+COLUMN|0|1|[reference]|Column number of a reference|
+COLUMNS|1|1|array|Number of columns|
+DROP|2|3|array, rows, [columns]|Drop rows/columns from an edge|365
+EXPAND|2|4|array, rows, [columns], [pad_with]|Pad an array to a size|365
+FILTER|2|3|array, include, [if_empty]|Rows/columns that meet a condition|2021
+FORMULATEXT|1|1|reference|Formula of a cell as text|2013
+GETPIVOTDATA|2|-1|data_field, pivot_table, [field1, item1], ...|Value from a PivotTable|
+GROUPBY|3|8|row_fields, values, function, [field_headers], [total_depth], [sort_order], [filter_array], [field_relationship]|Group and aggregate rows|365
+HLOOKUP|3|4|lookup_value, table_array, row_index_num, [range_lookup]|Look up across the first row|
+HSTACK|1|-1|array1, ...|Stack arrays side by side|365
+HYPERLINK|1|2|link_location, [friendly_name]|Clickable link|
+IMAGE|1|5|source, [alt_text], [sizing], [height], [width]|Image from a URL|365
+INDEX|2|4|array, row_num, [column_num], [area_num]|Value at a row/column position|
+INDIRECT|1|2|ref_text, [a1]|Reference from text (volatile)|
+LOOKUP|2|3|lookup_value, lookup_vector, [result_vector]|Approximate lookup in a vector|
+MATCH|2|3|lookup_value, lookup_array, [match_type]|Position of a value in a range|
+OFFSET|3|5|reference, rows, cols, [height], [width]|Shifted reference (volatile)|
+PIVOTBY|4|11|row_fields, col_fields, values, function, ...|Pivot rows and columns|365
+ROW|0|1|[reference]|Row number of a reference|
+ROWS|1|1|array|Number of rows|
+RTD|3|-1|prog_id, server, topic1, ...|Real-time data from a COM server|
+SORT|1|4|array, [sort_index], [sort_order], [by_col]|Sorted array|2021
+SORTBY|2|-1|array, by_array1, [sort_order1], ...|Array sorted by other arrays|2021
+TAKE|2|3|array, rows, [columns]|Take rows/columns from an edge|365
+TOCOL|1|3|array, [ignore], [scan_by_column]|Array as one column|365
+TOROW|1|3|array, [ignore], [scan_by_column]|Array as one row|365
+TRANSPOSE|1|1|array|Swap rows and columns|
+TRIMRANGE|1|3|range, [trim_rows], [trim_cols]|Trim empty edges of a range|365
+UNIQUE|1|3|array, [by_col], [exactly_once]|Distinct values|2021
+VLOOKUP|3|4|lookup_value, table_array, col_index_num, [range_lookup]|Look up down the first column; FALSE = exact|
+VSTACK|1|-1|array1, ...|Stack arrays vertically|365
+WRAPCOLS|2|3|vector, wrap_count, [pad_with]|Wrap a vector into columns|365
+WRAPROWS|2|3|vector, wrap_count, [pad_with]|Wrap a vector into rows|365
+XLOOKUP|3|6|lookup_value, lookup_array, return_array, [if_not_found], [match_mode], [search_mode]|Modern exact-by-default lookup|2021
+XMATCH|2|4|lookup_value, lookup_array, [match_mode], [search_mode]|Modern position lookup|2021
+# ---- math & trig
+ABS|1|1|number|Absolute value|
+ACOS|1|1|number|Arccosine|
+ACOSH|1|1|number|Inverse hyperbolic cosine|
+ACOT|1|1|number|Arccotangent|2013
+ACOTH|1|1|number|Inverse hyperbolic cotangent|2013
+AGGREGATE|3|-1|function_num, options, ref1, ...|Aggregate ignoring errors/hidden rows|2010
+ARABIC|1|1|text|Roman numeral to number|2013
+ASIN|1|1|number|Arcsine|
+ASINH|1|1|number|Inverse hyperbolic sine|
+ATAN|1|1|number|Arctangent|
+ATAN2|2|2|x_num, y_num|Arctangent from x and y|
+ATANH|1|1|number|Inverse hyperbolic tangent|
+BASE|2|3|number, radix, [min_length]|Number to text in a base|2013
+CEILING|1|2|number, [significance]|Round up to a multiple (legacy)|
+CEILING.MATH|1|3|number, [significance], [mode]|Round up to a multiple|2013
+CEILING.PRECISE|1|2|number, [significance]|Round up to a multiple|2010
+COMBIN|2|2|number, number_chosen|Combinations|
+COMBINA|2|2|number, number_chosen|Combinations with repetition|2013
+COS|1|1|number|Cosine|
+COSH|1|1|number|Hyperbolic cosine|
+COT|1|1|number|Cotangent|2013
+COTH|1|1|number|Hyperbolic cotangent|2013
+CSC|1|1|number|Cosecant|2013
+CSCH|1|1|number|Hyperbolic cosecant|2013
+DECIMAL|2|2|text, radix|Text in a base to number|2013
+DEGREES|1|1|angle|Radians to degrees|
+EVEN|1|1|number|Round up to an even integer|
+EXP|1|1|number|e raised to a power|
+FACT|1|1|number|Factorial|
+FACTDOUBLE|1|1|number|Double factorial|
+FLOOR|1|2|number, [significance]|Round down to a multiple (legacy)|
+FLOOR.MATH|1|3|number, [significance], [mode]|Round down to a multiple|2013
+FLOOR.PRECISE|1|2|number, [significance]|Round down to a multiple|2010
+GCD|1|-1|number1, ...|Greatest common divisor|
+INT|1|1|number|Round down to an integer|
+ISO.CEILING|1|2|number, [significance]|Round up to a multiple (ISO)|2010
+LCM|1|-1|number1, ...|Least common multiple|
+LN|1|1|number|Natural logarithm|
+LOG|1|2|number, [base]|Logarithm|
+LOG10|1|1|number|Base-10 logarithm|
+MDETERM|1|1|array|Matrix determinant|
+MINVERSE|1|1|array|Matrix inverse|
+MMULT|2|2|array1, array2|Matrix product|
+MOD|2|2|number, divisor|Remainder|
+MROUND|2|2|number, multiple|Round to a multiple|
+MULTINOMIAL|1|-1|number1, ...|Multinomial coefficient|
+MUNIT|1|1|dimension|Identity matrix|2013
+ODD|1|1|number|Round up to an odd integer|
+PI|0|0||The constant pi|
+POWER|2|2|number, power|Number raised to a power|
+PRODUCT|1|-1|number1, ...|Multiply numbers|
+QUOTIENT|2|2|numerator, denominator|Integer part of a division|
+RADIANS|1|1|angle|Degrees to radians|
+RAND|0|0||Random number 0..1 (volatile)|
+RANDARRAY|0|5|[rows], [columns], [min], [max], [integer]|Array of random numbers|2021
+RANDBETWEEN|2|2|bottom, top|Random integer in a range (volatile)|
+ROMAN|1|2|number, [form]|Number to Roman numeral|
+ROUND|2|2|number, num_digits|Round to digits|
+ROUNDDOWN|2|2|number, num_digits|Round toward zero|
+ROUNDUP|2|2|number, num_digits|Round away from zero|
+SEC|1|1|number|Secant|2013
+SECH|1|1|number|Hyperbolic secant|2013
+SEQUENCE|1|4|rows, [columns], [start], [step]|Array of sequential numbers|2021
+SERIESSUM|4|4|x, n, m, coefficients|Sum of a power series|
+SIGN|1|1|number|Sign of a number|
+SIN|1|1|number|Sine|
+SINH|1|1|number|Hyperbolic sine|
+SQRT|1|1|number|Square root|
+SQRTPI|1|1|number|Square root of number*pi|
+SUBTOTAL|2|-1|function_num, ref1, ...|Subtotal ignoring other subtotals|
+SUM|1|-1|number1, ...|Add numbers|
+SUMIF|2|3|range, criteria, [sum_range]|Sum cells meeting one condition|
+SUMIFS|3|-1|sum_range, criteria_range1, criteria1, ...|Sum cells meeting all conditions|2007
+SUMPRODUCT|1|-1|array1, ...|Sum of products of arrays|
+SUMSQ|1|-1|number1, ...|Sum of squares|
+SUMX2MY2|2|2|array_x, array_y|Sum of x^2 - y^2|
+SUMX2PY2|2|2|array_x, array_y|Sum of x^2 + y^2|
+SUMXMY2|2|2|array_x, array_y|Sum of (x - y)^2|
+TAN|1|1|number|Tangent|
+TANH|1|1|number|Hyperbolic tangent|
+TRUNC|1|2|number, [num_digits]|Truncate a number|
+# ---- statistical
+AVEDEV|1|-1|number1, ...|Mean absolute deviation|
+AVERAGE|1|-1|number1, ...|Arithmetic mean|
+AVERAGEA|1|-1|value1, ...|Mean counting text and logicals|
+AVERAGEIF|2|3|range, criteria, [average_range]|Mean of cells meeting one condition|2007
+AVERAGEIFS|3|-1|average_range, criteria_range1, criteria1, ...|Mean of cells meeting all conditions|2007
+BETA.DIST|4|6|x, alpha, beta, cumulative, [A], [B]|Beta distribution|2010
+BETA.INV|3|5|probability, alpha, beta, [A], [B]|Inverse beta distribution|2010
+BETADIST|3|5|x, alpha, beta, [A], [B]|Beta distribution (legacy)|
+BETAINV|3|5|probability, alpha, beta, [A], [B]|Inverse beta (legacy)|
+BINOM.DIST|4|4|number_s, trials, probability_s, cumulative|Binomial distribution|2010
+BINOM.DIST.RANGE|3|4|trials, probability_s, number_s, [number_s2]|Binomial probability of a range|2013
+BINOM.INV|3|3|trials, probability_s, alpha|Smallest binomial value meeting alpha|2010
+BINOMDIST|4|4|number_s, trials, probability_s, cumulative|Binomial distribution (legacy)|
+CHIDIST|2|2|x, deg_freedom|Chi-squared right tail (legacy)|
+CHIINV|2|2|probability, deg_freedom|Inverse chi-squared (legacy)|
+CHISQ.DIST|3|3|x, deg_freedom, cumulative|Chi-squared distribution|2010
+CHISQ.DIST.RT|2|2|x, deg_freedom|Chi-squared right tail|2010
+CHISQ.INV|2|2|probability, deg_freedom|Inverse chi-squared|2010
+CHISQ.INV.RT|2|2|probability, deg_freedom|Inverse chi-squared right tail|2010
+CHISQ.TEST|2|2|actual_range, expected_range|Chi-squared independence test|2010
+CHITEST|2|2|actual_range, expected_range|Chi-squared test (legacy)|
+CONFIDENCE|3|3|alpha, standard_dev, size|Confidence interval (legacy)|
+CONFIDENCE.NORM|3|3|alpha, standard_dev, size|Confidence interval, normal|2010
+CONFIDENCE.T|3|3|alpha, standard_dev, size|Confidence interval, Student t|2010
+CORREL|2|2|array1, array2|Correlation coefficient|
+COUNT|1|-1|value1, ...|Count numbers|
+COUNTA|1|-1|value1, ...|Count non-empty cells|
+COUNTBLANK|1|1|range|Count empty cells|
+COUNTIF|2|2|range, criteria|Count cells meeting one condition|
+COUNTIFS|2|-1|criteria_range1, criteria1, ...|Count cells meeting all conditions|2007
+COVAR|2|2|array1, array2|Covariance (legacy)|
+COVARIANCE.P|2|2|array1, array2|Population covariance|2010
+COVARIANCE.S|2|2|array1, array2|Sample covariance|2010
+CRITBINOM|3|3|trials, probability_s, alpha|Binomial criterion (legacy)|
+DEVSQ|1|-1|number1, ...|Sum of squared deviations|
+EXPON.DIST|3|3|x, lambda, cumulative|Exponential distribution|2010
+EXPONDIST|3|3|x, lambda, cumulative|Exponential distribution (legacy)|
+F.DIST|4|4|x, deg_freedom1, deg_freedom2, cumulative|F distribution|2010
+F.DIST.RT|3|3|x, deg_freedom1, deg_freedom2|F distribution right tail|2010
+F.INV|3|3|probability, deg_freedom1, deg_freedom2|Inverse F distribution|2010
+F.INV.RT|3|3|probability, deg_freedom1, deg_freedom2|Inverse F right tail|2010
+F.TEST|2|2|array1, array2|F-test|2010
+FDIST|3|3|x, deg_freedom1, deg_freedom2|F distribution (legacy)|
+FINV|3|3|probability, deg_freedom1, deg_freedom2|Inverse F (legacy)|
+FISHER|1|1|x|Fisher transformation|
+FISHERINV|1|1|y|Inverse Fisher transformation|
+FORECAST|3|3|x, known_ys, known_xs|Linear forecast (legacy)|
+FORECAST.ETS|3|6|target_date, values, timeline, [seasonality], [data_completion], [aggregation]|Exponential smoothing forecast|2016
+FORECAST.ETS.CONFINT|3|7|target_date, values, timeline, [confidence_level], [seasonality], [data_completion], [aggregation]|Confidence interval of an ETS forecast|2016
+FORECAST.ETS.SEASONALITY|2|4|values, timeline, [data_completion], [aggregation]|Detected season length|2016
+FORECAST.ETS.STAT|3|6|values, timeline, statistic_type, [seasonality], [data_completion], [aggregation]|ETS forecast statistic|2016
+FORECAST.LINEAR|3|3|x, known_ys, known_xs|Linear forecast|2016
+FREQUENCY|2|2|data_array, bins_array|Frequency distribution|
+FTEST|2|2|array1, array2|F-test (legacy)|
+GAMMA|1|1|x|Gamma function|2013
+GAMMA.DIST|4|4|x, alpha, beta, cumulative|Gamma distribution|2010
+GAMMA.INV|3|3|probability, alpha, beta|Inverse gamma distribution|2010
+GAMMADIST|4|4|x, alpha, beta, cumulative|Gamma distribution (legacy)|
+GAMMAINV|3|3|probability, alpha, beta|Inverse gamma (legacy)|
+GAMMALN|1|1|x|Log of gamma|
+GAMMALN.PRECISE|1|1|x|Log of gamma|2010
+GAUSS|1|1|z|Normal probability between mean and z|2013
+GEOMEAN|1|-1|number1, ...|Geometric mean|
+GROWTH|1|4|known_ys, [known_xs], [new_xs], [const]|Exponential trend|
+HARMEAN|1|-1|number1, ...|Harmonic mean|
+HYPGEOM.DIST|5|5|sample_s, number_sample, population_s, number_pop, cumulative|Hypergeometric distribution|2010
+HYPGEOMDIST|4|4|sample_s, number_sample, population_s, number_pop|Hypergeometric (legacy)|
+INTERCEPT|2|2|known_ys, known_xs|Regression intercept|
+KURT|1|-1|number1, ...|Kurtosis|
+LARGE|2|2|array, k|k-th largest value|
+LINEST|1|4|known_ys, [known_xs], [const], [stats]|Linear regression statistics|
+LOGEST|1|4|known_ys, [known_xs], [const], [stats]|Exponential regression statistics|
+LOGINV|3|3|probability, mean, standard_dev|Inverse lognormal (legacy)|
+LOGNORM.DIST|4|4|x, mean, standard_dev, cumulative|Lognormal distribution|2010
+LOGNORM.INV|3|3|probability, mean, standard_dev|Inverse lognormal|2010
+LOGNORMDIST|3|3|x, mean, standard_dev|Lognormal (legacy)|
+MAX|1|-1|number1, ...|Largest value|
+MAXA|1|-1|value1, ...|Largest value counting text and logicals|
+MAXIFS|3|-1|max_range, criteria_range1, criteria1, ...|Largest value meeting conditions|2019
+MEDIAN|1|-1|number1, ...|Median|
+MIN|1|-1|number1, ...|Smallest value|
+MINA|1|-1|value1, ...|Smallest value counting text and logicals|
+MINIFS|3|-1|min_range, criteria_range1, criteria1, ...|Smallest value meeting conditions|2019
+MODE|1|-1|number1, ...|Most frequent value (legacy)|
+MODE.MULT|1|-1|number1, ...|All most frequent values|2010
+MODE.SNGL|1|-1|number1, ...|Most frequent value|2010
+NEGBINOM.DIST|4|4|number_f, number_s, probability_s, cumulative|Negative binomial distribution|2010
+NEGBINOMDIST|3|3|number_f, number_s, probability_s|Negative binomial (legacy)|
+NORM.DIST|4|4|x, mean, standard_dev, cumulative|Normal distribution|2010
+NORM.INV|3|3|probability, mean, standard_dev|Inverse normal|2010
+NORM.S.DIST|2|2|z, cumulative|Standard normal distribution|2010
+NORM.S.INV|1|1|probability|Inverse standard normal|2010
+NORMDIST|4|4|x, mean, standard_dev, cumulative|Normal distribution (legacy)|
+NORMINV|3|3|probability, mean, standard_dev|Inverse normal (legacy)|
+NORMSDIST|1|1|z|Standard normal (legacy)|
+NORMSINV|1|1|probability|Inverse standard normal (legacy)|
+PEARSON|2|2|array1, array2|Pearson correlation|
+PERCENTILE|2|2|array, k|k-th percentile (legacy)|
+PERCENTILE.EXC|2|2|array, k|k-th percentile, exclusive|2010
+PERCENTILE.INC|2|2|array, k|k-th percentile, inclusive|2010
+PERCENTOF|2|2|data_subset, data_all|Share of a subset in a total|365
+PERCENTRANK|2|3|array, x, [significance]|Percent rank (legacy)|
+PERCENTRANK.EXC|2|3|array, x, [significance]|Percent rank, exclusive|2010
+PERCENTRANK.INC|2|3|array, x, [significance]|Percent rank, inclusive|2010
+PERMUT|2|2|number, number_chosen|Permutations|
+PERMUTATIONA|2|2|number, number_chosen|Permutations with repetition|2013
+PHI|1|1|x|Standard normal density|2013
+POISSON|3|3|x, mean, cumulative|Poisson distribution (legacy)|
+POISSON.DIST|3|3|x, mean, cumulative|Poisson distribution|2010
+PROB|3|4|x_range, prob_range, lower_limit, [upper_limit]|Probability values fall in a range|
+QUARTILE|2|2|array, quart|Quartile (legacy)|
+QUARTILE.EXC|2|2|array, quart|Quartile, exclusive|2010
+QUARTILE.INC|2|2|array, quart|Quartile, inclusive|2010
+RANK|2|3|number, ref, [order]|Rank of a number (legacy)|
+RANK.AVG|2|3|number, ref, [order]|Rank, ties averaged|2010
+RANK.EQ|2|3|number, ref, [order]|Rank of a number|2010
+RSQ|2|2|known_ys, known_xs|R squared|
+SKEW|1|-1|number1, ...|Skewness|
+SKEW.P|1|-1|number1, ...|Population skewness|2013
+SLOPE|2|2|known_ys, known_xs|Regression slope|
+SMALL|2|2|array, k|k-th smallest value|
+STANDARDIZE|3|3|x, mean, standard_dev|Normalized value (z-score)|
+STDEV|1|-1|number1, ...|Sample standard deviation (legacy)|
+STDEV.P|1|-1|number1, ...|Population standard deviation|2010
+STDEV.S|1|-1|number1, ...|Sample standard deviation|2010
+STDEVA|1|-1|value1, ...|Sample std dev counting text and logicals|
+STDEVP|1|-1|number1, ...|Population std dev (legacy)|
+STDEVPA|1|-1|value1, ...|Population std dev counting text and logicals|
+STEYX|2|2|known_ys, known_xs|Standard error of regression|
+T.DIST|3|3|x, deg_freedom, cumulative|Student t distribution|2010
+T.DIST.2T|2|2|x, deg_freedom|Two-tailed t distribution|2010
+T.DIST.RT|2|2|x, deg_freedom|Right-tailed t distribution|2010
+T.INV|2|2|probability, deg_freedom|Inverse t distribution|2010
+T.INV.2T|2|2|probability, deg_freedom|Two-tailed inverse t|2010
+T.TEST|4|4|array1, array2, tails, type|Student t-test|2010
+TDIST|3|3|x, deg_freedom, tails|t distribution (legacy)|
+TINV|2|2|probability, deg_freedom|Inverse t (legacy)|
+TREND|1|4|known_ys, [known_xs], [new_xs], [const]|Linear trend values|
+TRIMMEAN|2|2|array, percent|Mean excluding outer values|
+TTEST|4|4|array1, array2, tails, type|t-test (legacy)|
+VAR|1|-1|number1, ...|Sample variance (legacy)|
+VAR.P|1|-1|number1, ...|Population variance|2010
+VAR.S|1|-1|number1, ...|Sample variance|2010
+VARA|1|-1|value1, ...|Sample variance counting text and logicals|
+VARP|1|-1|number1, ...|Population variance (legacy)|
+VARPA|1|-1|value1, ...|Population variance counting text and logicals|
+WEIBULL|4|4|x, alpha, beta, cumulative|Weibull distribution (legacy)|
+WEIBULL.DIST|4|4|x, alpha, beta, cumulative|Weibull distribution|2010
+Z.TEST|2|3|array, x, [sigma]|One-tailed z-test|2010
+ZTEST|2|3|array, x, [sigma]|z-test (legacy)|
+# ---- text
+ARRAYTOTEXT|1|2|array, [format]|Array as text|365
+ASC|1|1|text|Full-width to half-width characters|
+BAHTTEXT|1|1|number|Number as Thai text|
+CHAR|1|1|number|Character from code|
+CLEAN|1|1|text|Remove non-printable characters|
+CODE|1|1|text|Code of first character|
+CONCAT|1|-1|text1, ...|Join texts|2019
+CONCATENATE|1|-1|text1, ...|Join texts (legacy)|
+DBCS|1|1|text|Half-width to full-width characters|2013
+DOLLAR|1|2|number, [decimals]|Number as currency text|
+EXACT|2|2|text1, text2|Case-sensitive comparison|
+FIND|2|3|find_text, within_text, [start_num]|Case-sensitive position of text|
+FINDB|2|3|find_text, within_text, [start_num]|FIND counting bytes|
+FIXED|1|3|number, [decimals], [no_commas]|Number as fixed-decimal text|
+LEFT|1|2|text, [num_chars]|Leftmost characters|
+LEFTB|1|2|text, [num_bytes]|Leftmost bytes|
+LEN|1|1|text|Number of characters|
+LENB|1|1|text|Number of bytes|
+LOWER|1|1|text|Lower-case text|
+MID|3|3|text, start_num, num_chars|Characters from the middle|
+MIDB|3|3|text, start_num, num_bytes|Bytes from the middle|
+NUMBERVALUE|1|3|text, [decimal_separator], [group_separator]|Locale-independent text to number|2013
+PHONETIC|1|1|reference|Furigana of Japanese text|
+PROPER|1|1|text|Capitalise each word|
+REGEXEXTRACT|2|4|text, pattern, [return_mode], [case_sensitivity]|Extract text matching a regex|365
+REGEXREPLACE|3|5|text, pattern, replacement, [occurrence], [case_sensitivity]|Replace text matching a regex|365
+REGEXTEST|2|3|text, pattern, [case_sensitivity]|TRUE if text matches a regex|365
+REPLACE|4|4|old_text, start_num, num_chars, new_text|Replace characters by position|
+REPLACEB|4|4|old_text, start_num, num_bytes, new_text|Replace bytes by position|
+REPT|2|2|text, number_times|Repeat text|
+RIGHT|1|2|text, [num_chars]|Rightmost characters|
+RIGHTB|1|2|text, [num_bytes]|Rightmost bytes|
+SEARCH|2|3|find_text, within_text, [start_num]|Case-insensitive position of text|
+SEARCHB|2|3|find_text, within_text, [start_num]|SEARCH counting bytes|
+SUBSTITUTE|3|4|text, old_text, new_text, [instance_num]|Replace text by match|
+T|1|1|value|Text if value is text, else empty|
+TEXT|2|2|value, format_text|Format a number as text|
+TEXTAFTER|2|6|text, delimiter, [instance_num], [match_mode], [match_end], [if_not_found]|Text after a delimiter|365
+TEXTBEFORE|2|6|text, delimiter, [instance_num], [match_mode], [match_end], [if_not_found]|Text before a delimiter|365
+TEXTJOIN|3|-1|delimiter, ignore_empty, text1, ...|Join texts with a delimiter|2019
+TEXTSPLIT|2|6|text, col_delimiter, [row_delimiter], [ignore_empty], [match_mode], [pad_with]|Split text into an array|365
+TRIM|1|1|text|Remove extra spaces|
+UNICHAR|1|1|number|Unicode character from code|2013
+UNICODE|1|1|text|Unicode code of first character|2013
+UPPER|1|1|text|Upper-case text|
+VALUE|1|1|text|Text to number|
+VALUETOTEXT|1|2|value, [format]|Value as text|365
+# ---- date & time
+DATE|3|3|year, month, day|Build a date|
+DATEDIF|3|3|start_date, end_date, unit|Difference between dates in a unit|
+DATEVALUE|1|1|date_text|Date text to serial date|
+DAY|1|1|serial_number|Day of month|
+DAYS|2|2|end_date, start_date|Days between two dates|2013
+DAYS360|2|3|start_date, end_date, [method]|Days between dates, 360-day year|
+EDATE|2|2|start_date, months|Same day N months away|
+EOMONTH|2|2|start_date, months|Last day of the month N months away|
+HOUR|1|1|serial_number|Hour of a time|
+ISOWEEKNUM|1|1|date|ISO week number|2013
+MINUTE|1|1|serial_number|Minute of a time|
+MONTH|1|1|serial_number|Month of a date|
+NETWORKDAYS|2|3|start_date, end_date, [holidays]|Working days between dates|
+NETWORKDAYS.INTL|2|4|start_date, end_date, [weekend], [holidays]|Working days with custom weekends|2010
+NOW|0|0||Current date and time (volatile)|
+SECOND|1|1|serial_number|Second of a time|
+TIME|3|3|hour, minute, second|Build a time|
+TIMEVALUE|1|1|time_text|Time text to serial time|
+TODAY|0|0||Current date (volatile)|
+WEEKDAY|1|2|serial_number, [return_type]|Day of week number|
+WEEKNUM|1|2|serial_number, [return_type]|Week number of the year|
+WORKDAY|2|3|start_date, days, [holidays]|Date N working days away|
+WORKDAY.INTL|2|4|start_date, days, [weekend], [holidays]|Working day with custom weekends|2010
+YEAR|1|1|serial_number|Year of a date|
+YEARFRAC|2|3|start_date, end_date, [basis]|Fraction of a year between dates|
+# ---- information
+CELL|1|2|info_type, [reference]|Information about a cell|
+ERROR.TYPE|1|1|error_val|Number of an error type|
+INFO|1|1|type_text|Information about the environment|
+ISBLANK|1|1|value|TRUE if empty|
+ISERR|1|1|value|TRUE for errors except #N/A|
+ISERROR|1|1|value|TRUE for any error|
+ISEVEN|1|1|number|TRUE if even|
+ISFORMULA|1|1|reference|TRUE if the cell has a formula|2013
+ISLOGICAL|1|1|value|TRUE for logical values|
+ISNA|1|1|value|TRUE for #N/A|
+ISNONTEXT|1|1|value|TRUE for non-text|
+ISNUMBER|1|1|value|TRUE for numbers|
+ISODD|1|1|number|TRUE if odd|
+ISREF|1|1|value|TRUE for references|
+ISTEXT|1|1|value|TRUE for text|
+N|1|1|value|Value converted to a number|
+NA|0|0||The #N/A error|
+SHEET|0|1|[value]|Sheet number|2013
+SHEETS|0|1|[reference]|Number of sheets|2013
+TYPE|1|1|value|Type of a value as a number|
+# ---- financial
+ACCRINT|6|8|issue, first_interest, settlement, rate, par, frequency, [basis], [calc_method]|Accrued interest, periodic|
+ACCRINTM|3|5|issue, settlement, rate, [par], [basis]|Accrued interest at maturity|
+AMORDEGRC|6|7|cost, date_purchased, first_period, salvage, period, rate, [basis]|French degressive depreciation|
+AMORLINC|6|7|cost, date_purchased, first_period, salvage, period, rate, [basis]|French linear depreciation|
+COUPDAYBS|3|4|settlement, maturity, frequency, [basis]|Days from coupon start to settlement|
+COUPDAYS|3|4|settlement, maturity, frequency, [basis]|Days in the coupon period|
+COUPDAYSNC|3|4|settlement, maturity, frequency, [basis]|Days to next coupon|
+COUPNCD|3|4|settlement, maturity, frequency, [basis]|Next coupon date|
+COUPNUM|3|4|settlement, maturity, frequency, [basis]|Number of coupons|
+COUPPCD|3|4|settlement, maturity, frequency, [basis]|Previous coupon date|
+CUMIPMT|6|6|rate, nper, pv, start_period, end_period, type|Cumulative interest paid|
+CUMPRINC|6|6|rate, nper, pv, start_period, end_period, type|Cumulative principal paid|
+DB|4|5|cost, salvage, life, period, [month]|Fixed-declining balance depreciation|
+DDB|4|5|cost, salvage, life, period, [factor]|Double-declining balance depreciation|
+DISC|4|5|settlement, maturity, pr, redemption, [basis]|Discount rate of a security|
+DOLLARDE|2|2|fractional_dollar, fraction|Fraction price to decimal|
+DOLLARFR|2|2|decimal_dollar, fraction|Decimal price to fraction|
+DURATION|5|6|settlement, maturity, coupon, yld, frequency, [basis]|Macaulay duration|
+EFFECT|2|2|nominal_rate, npery|Effective annual rate|
+FV|3|5|rate, nper, pmt, [pv], [type]|Future value|
+FVSCHEDULE|2|2|principal, schedule|Future value with variable rates|
+INTRATE|4|5|settlement, maturity, investment, redemption, [basis]|Interest rate of a security|
+IPMT|4|6|rate, per, nper, pv, [fv], [type]|Interest part of a payment|
+IRR|1|2|values, [guess]|Internal rate of return|
+ISPMT|4|4|rate, per, nper, pv|Interest of an even-principal loan|
+MDURATION|5|6|settlement, maturity, coupon, yld, frequency, [basis]|Modified duration|
+MIRR|3|3|values, finance_rate, reinvest_rate|Modified internal rate of return|
+NOMINAL|2|2|effect_rate, npery|Nominal annual rate|
+NPER|3|5|rate, pmt, pv, [fv], [type]|Number of periods|
+NPV|2|-1|rate, value1, ...|Net present value|
+ODDFPRICE|8|9|settlement, maturity, issue, first_coupon, rate, yld, redemption, frequency, [basis]|Price, odd first period|
+ODDFYIELD|8|9|settlement, maturity, issue, first_coupon, rate, pr, redemption, frequency, [basis]|Yield, odd first period|
+ODDLPRICE|7|8|settlement, maturity, last_interest, rate, yld, redemption, frequency, [basis]|Price, odd last period|
+ODDLYIELD|7|8|settlement, maturity, last_interest, rate, pr, redemption, frequency, [basis]|Yield, odd last period|
+PDURATION|3|3|rate, pv, fv|Periods to reach a value|2013
+PMT|3|5|rate, nper, pv, [fv], [type]|Loan payment|
+PPMT|4|6|rate, per, nper, pv, [fv], [type]|Principal part of a payment|
+PRICE|6|7|settlement, maturity, rate, yld, redemption, frequency, [basis]|Price of a periodic-interest security|
+PRICEDISC|4|5|settlement, maturity, discount, redemption, [basis]|Price of a discounted security|
+PRICEMAT|5|6|settlement, maturity, issue, rate, yld, [basis]|Price, interest at maturity|
+PV|3|5|rate, nper, pmt, [fv], [type]|Present value|
+RATE|3|6|nper, pmt, pv, [fv], [type], [guess]|Interest rate per period|
+RECEIVED|4|5|settlement, maturity, investment, discount, [basis]|Amount received at maturity|
+RRI|3|3|nper, pv, fv|Equivalent interest rate for growth|2013
+SLN|3|3|cost, salvage, life|Straight-line depreciation|
+SYD|4|4|cost, salvage, life, per|Sum-of-years depreciation|
+TBILLEQ|3|3|settlement, maturity, discount|Bond-equivalent yield of a T-bill|
+TBILLPRICE|3|3|settlement, maturity, discount|Price of a T-bill|
+TBILLYIELD|3|3|settlement, maturity, pr|Yield of a T-bill|
+VDB|5|7|cost, salvage, life, start_period, end_period, [factor], [no_switch]|Variable declining balance depreciation|
+XIRR|2|3|values, dates, [guess]|IRR for irregular cash flows|
+XNPV|3|3|rate, values, dates|NPV for irregular cash flows|
+YIELD|6|7|settlement, maturity, rate, pr, redemption, frequency, [basis]|Yield of a periodic-interest security|
+YIELDDISC|4|5|settlement, maturity, pr, redemption, [basis]|Yield of a discounted security|
+YIELDMAT|5|6|settlement, maturity, issue, rate, pr, [basis]|Yield, interest at maturity|
+# ---- engineering
+BESSELI|2|2|x, n|Modified Bessel In(x)|
+BESSELJ|2|2|x, n|Bessel Jn(x)|
+BESSELK|2|2|x, n|Modified Bessel Kn(x)|
+BESSELY|2|2|x, n|Bessel Yn(x)|
+BIN2DEC|1|1|number|Binary to decimal|
+BIN2HEX|1|2|number, [places]|Binary to hexadecimal|
+BIN2OCT|1|2|number, [places]|Binary to octal|
+BITAND|2|2|number1, number2|Bitwise AND|2013
+BITLSHIFT|2|2|number, shift_amount|Bitwise left shift|2013
+BITOR|2|2|number1, number2|Bitwise OR|2013
+BITRSHIFT|2|2|number, shift_amount|Bitwise right shift|2013
+BITXOR|2|2|number1, number2|Bitwise XOR|2013
+COMPLEX|2|3|real_num, i_num, [suffix]|Build a complex number|
+CONVERT|3|3|number, from_unit, to_unit|Convert between units|
+DEC2BIN|1|2|number, [places]|Decimal to binary|
+DEC2HEX|1|2|number, [places]|Decimal to hexadecimal|
+DEC2OCT|1|2|number, [places]|Decimal to octal|
+DELTA|1|2|number1, [number2]|1 if two numbers are equal|
+ERF|1|2|lower_limit, [upper_limit]|Error function|
+ERF.PRECISE|1|1|x|Error function|2010
+ERFC|1|1|x|Complementary error function|
+ERFC.PRECISE|1|1|x|Complementary error function|2010
+GESTEP|1|2|number, [step]|1 if number >= step|
+HEX2BIN|1|2|number, [places]|Hexadecimal to binary|
+HEX2DEC|1|1|number|Hexadecimal to decimal|
+HEX2OCT|1|2|number, [places]|Hexadecimal to octal|
+IMABS|1|1|inumber|Modulus of a complex number|
+IMAGINARY|1|1|inumber|Imaginary part|
+IMARGUMENT|1|1|inumber|Argument of a complex number|
+IMCONJUGATE|1|1|inumber|Complex conjugate|
+IMCOS|1|1|inumber|Complex cosine|
+IMCOSH|1|1|inumber|Complex hyperbolic cosine|2013
+IMCOT|1|1|inumber|Complex cotangent|2013
+IMCSC|1|1|inumber|Complex cosecant|2013
+IMCSCH|1|1|inumber|Complex hyperbolic cosecant|2013
+IMDIV|2|2|inumber1, inumber2|Complex division|
+IMEXP|1|1|inumber|Complex exponential|
+IMLN|1|1|inumber|Complex natural log|
+IMPOWER|2|2|inumber, number|Complex power|
+IMPRODUCT|1|-1|inumber1, ...|Complex product|
+IMREAL|1|1|inumber|Real part|
+IMSEC|1|1|inumber|Complex secant|2013
+IMSECH|1|1|inumber|Complex hyperbolic secant|2013
+IMSIN|1|1|inumber|Complex sine|
+IMSINH|1|1|inumber|Complex hyperbolic sine|2013
+IMSQRT|1|1|inumber|Complex square root|
+IMSUB|2|2|inumber1, inumber2|Complex subtraction|
+IMSUM|1|-1|inumber1, ...|Complex sum|
+IMTAN|1|1|inumber|Complex tangent|2013
+OCT2BIN|1|2|number, [places]|Octal to binary|
+OCT2DEC|1|1|number|Octal to decimal|
+OCT2HEX|1|2|number, [places]|Octal to hexadecimal|
+# ---- database
+DAVERAGE|3|3|database, field, criteria|Average of matching records|
+DCOUNT|3|3|database, field, criteria|Count numbers in matching records|
+DCOUNTA|3|3|database, field, criteria|Count non-empty matching records|
+DGET|3|3|database, field, criteria|Single value from matching records|
+DMAX|3|3|database, field, criteria|Max of matching records|
+DMIN|3|3|database, field, criteria|Min of matching records|
+DPRODUCT|3|3|database, field, criteria|Product of matching records|
+DSTDEV|3|3|database, field, criteria|Sample std dev of matching records|
+DSTDEVP|3|3|database, field, criteria|Population std dev of matching records|
+DSUM|3|3|database, field, criteria|Sum of matching records|
+DVAR|3|3|database, field, criteria|Sample variance of matching records|
+DVARP|3|3|database, field, criteria|Population variance of matching records|
+# ---- web, cube, compatibility extras
+CUBEKPIMEMBER|3|4|connection, kpi_name, kpi_property, [caption]|KPI from a cube|2007
+CUBEMEMBER|2|3|connection, member_expression, [caption]|Member from a cube|2007
+CUBEMEMBERPROPERTY|3|3|connection, member_expression, property|Member property from a cube|2007
+CUBERANKEDMEMBER|3|4|connection, set_expression, rank, [caption]|Ranked member from a cube|2007
+CUBESET|2|5|connection, set_expression, [caption], [sort_order], [sort_by]|Set from a cube|2007
+CUBESETCOUNT|1|1|set|Items in a cube set|2007
+CUBEVALUE|1|-1|connection, member_expression1, ...|Aggregated cube value|2007
+ENCODEURL|1|1|text|URL-encode text|2013
+FILTERXML|2|2|xml, xpath|Values from XML by XPath|2013
+STOCKHISTORY|2|-1|stock, start_date, [end_date], [interval], [headers], [property0], ...|Historical stock data|365
+TRANSLATE|1|3|text, [source_language], [target_language]|Translate text|365
+WEBSERVICE|1|1|url|Data from a web service|2013
