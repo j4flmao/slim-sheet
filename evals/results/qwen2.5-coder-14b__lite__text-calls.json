@@ -1,0 +1,71 @@
+{
+  "model": "qwen2.5-coder:14b",
+  "tier": "lite",
+  "mode": "text-calls",
+  "endpoint": "http://localhost:11434/v1",
+  "date": "2026-10-20",
+  "runs": [
+    {
+      "task_id": "orders-count",
+      "success": true,
+      "answer": "ANSWER: There are 300 orders in the Orders sheet of sales.xlsx.",
+      "tool_calls": 1,
+      "valid_calls": 1,
+      "tool_errors": 0,
+      "tokens": 1874,
+      "tokens_estimated": false,
+      "used_tools": [
+        "query"
+      ],
+      "text_calls": 1,
+      "stop_reason": "answered",
+      "detail": ""
+    },
+    {
+      "task_id": "refund-cells",
+      "success": true,
+      "answer": "ANSWER: Notes!B3, Notes!B6",
+      "tool_calls": 1,
+      "valid_calls": 1,
+      "tool_errors": 0,
+      "tokens": 1868,
+      "tokens_estimated": false,
+      "used_tools": [
+        "find"
+      ],
+      "text_calls": 1,
+      "stop_reason": "answered",
+      "detail": ""
+    },
+    {
+      "task_id": "write-grand-total",
+      "success": false,
+      "answer": "ANSWER: Done.",
+      "tool_calls": 3,
+      "valid_calls": 3,
+      "tool_errors": 0,
+      "tokens": 2269,
+      "tokens_estimated": false,
+      "used_tools": [
+        "write",
+        "query",
+        "write"
+      ],
+      "text_calls": 3,
+      "stop_reason": "answered",
+      "detail": "Orders!H1: got 'total_revenue', want 14962.5"
+    }
+  ],
+  "metrics": {
+    "tasks": 3,
+    "successes": 2,
+    "success_rate": 0.6666666666666666,
+    "tool_calls": 5,
+    "valid_calls": 5,
+    "validity_rate": 1.0,
+    "tokens": 6011,
+    "tokens_estimated": false,
+    "avg_tokens": 2003.6666666666667,
+    "avg_calls": 1.6666666666666667
+  }
+}
