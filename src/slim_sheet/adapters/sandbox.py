@@ -27,7 +27,7 @@ def resolve_output(raw: str, settings: Settings) -> Path:
     return resolved
 
 
-def resolve_path(raw: str, settings: Settings) -> Path:
+def _inside_roots(raw: str, settings: Settings) -> Path:
     if not raw or not raw.strip():
         raise SlimError(ErrorCode.BAD_ARGUMENT, "path is empty", hint="e.g. path='data/sales.xlsx'")
     candidate = Path(raw.strip()).expanduser()
@@ -41,6 +41,17 @@ def resolve_path(raw: str, settings: Settings) -> Path:
             f"'{raw}' is outside the allowed roots",
             hint=f"Allowed roots: {roots}. Set SLIM_SHEET_ROOTS to widen access.",
         )
+    return resolved
+
+
+def resolve_folder(raw: str, settings: Settings) -> Path | None:
+    """A directory inside the roots, or None when `raw` is not a directory."""
+    resolved = _inside_roots(raw, settings)
+    return resolved if resolved.is_dir() else None
+
+
+def resolve_path(raw: str, settings: Settings) -> Path:
+    resolved = _inside_roots(raw, settings)
     if not resolved.is_file():
         raise SlimError(
             ErrorCode.FILE_NOT_FOUND,

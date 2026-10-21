@@ -17,7 +17,9 @@ from typing import Any
 
 from slim_sheet.adapters import crypto, journal
 from slim_sheet.adapters.formats import sniff
+from slim_sheet.adapters.limits import check_cells
 from slim_sheet.adapters.sandbox import resolve_output, resolve_path
+from slim_sheet.adapters.writers import dynamic_arrays, sparklines
 from slim_sheet.adapters.writers.xlsx_writer import load_for_edit, lost_features, save_atomic
 from slim_sheet.config import Settings
 from slim_sheet.core.errors import ErrorCode, SlimError
@@ -31,6 +33,8 @@ WRITABLE_SUFFIXES = {".xlsx", ".xlsm"}
 class Change:
     summary: str
     warnings: tuple[str, ...] = ()
+    sparklines: tuple[tuple[str, str], ...] = ()  # (sheet title, new sparklineGroup XML)
+    dynamic: tuple[tuple[str, str], ...] = ()  # (sheet title, cell) written as spilling
 
 
 def writable_source(path: str, settings: Settings) -> Path:
@@ -85,12 +89,22 @@ def edit_workbook(
     source = writable_source(path, settings)
     target = resolve_target(source, settings, out_path, overwrite)
     base = target if target.exists() else source
+    check_cells(base, settings.max_cells)
     wb = load_for_edit(base)
     lost = lost_features(base, wb)
     warnings = [f"saved copy drops {f} (openpyxl limitation)" for f in lost]
+    kept = sparklines.extract(base)  # openpyxl drops them on save; written back below
+    spills = dynamic_arrays.extract(base)  # likewise the dynamic-array cell metadata
     change = mutate(wb)
     backup = journal.record(target, note)
     save_atomic(wb, target)
+    groups = {title: list(found) for title, found in kept.items() if title in wb.sheetnames}
+    for title, group in change.sparklines:
+        groups.setdefault(title, []).append(group)
+    sparklines.inject(target, groups)
+    for title, cell in change.dynamic:
+        spills.setdefault(title, set()).add(cell)
+    dynamic_arrays.inject(target, {t: c for t, c in spills.items() if t in wb.sheetnames})
     return OutputResult(
         source.name,
         target.name,

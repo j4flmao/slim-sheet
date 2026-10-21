@@ -10,7 +10,16 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from typing import Any
 
-from openpyxl.chart import AreaChart, BarChart, LineChart, PieChart, Reference, ScatterChart, Series
+from openpyxl.chart import (
+    AreaChart,
+    BarChart,
+    DoughnutChart,
+    LineChart,
+    PieChart,
+    Reference,
+    ScatterChart,
+    Series,
+)
 
 from slim_sheet.core.a1 import parse_range
 from slim_sheet.core.shift import Shift, rename_in_formula, shift_address, shift_formula
@@ -39,12 +48,13 @@ def build_chart(kind: str, ws: Any, data: str) -> Any:
             "bar": BarChart,
             "line": LineChart,
             "pie": PieChart,
+            "doughnut": DoughnutChart,
             "area": AreaChart,
         }
         chart = classes[kind]()
         if kind in ("column", "bar"):
             chart.type = "col" if kind == "column" else "bar"
-        last = left + 1 if kind == "pie" else right
+        last = left + 1 if kind in ("pie", "doughnut") else right
         data_ref = Reference(ws, min_col=left + 1, max_col=last, min_row=top, max_row=bottom)
         chart.add_data(data_ref, titles_from_data=True)
         chart.set_categories(categories)
@@ -83,6 +93,16 @@ def shift_charts(wb: Any, sheet: str, shift: Shift) -> int:
         for chart in ws._charts:
             changed += _move_anchor(chart, shift)
     return changed
+
+
+def anchor_cell(obj: Any) -> tuple[int, int] | None:
+    """(row, col) of a chart's or image's top-left cell, 0-based; None when it has no anchor."""
+    anchor = obj.anchor
+    if isinstance(anchor, str):
+        rng = parse_range(anchor)
+        return rng.top, rng.left
+    marker = getattr(anchor, "_from", None)
+    return (marker.row, marker.col) if marker is not None else None
 
 
 def _move_anchor(chart: Any, shift: Shift) -> int:

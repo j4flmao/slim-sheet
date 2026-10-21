@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+from slim_sheet.adapters.hidden_info import hidden_content
+from slim_sheet.adapters.sandbox import resolve_folder
+from slim_sheet.adapters.writers.xlsx_writer import package_warnings
 from slim_sheet.config import Settings
 from slim_sheet.core.a1 import index_to_col
 from slim_sheet.core.budget import cell_text
 from slim_sheet.core.detect import guess_header_row, infer_type
-from slim_sheet.core.models import CellRange, CellValue, ColumnInfo, SheetInfo, WorkbookInfo
+from slim_sheet.core.models import (
+    CellRange,
+    CellValue,
+    ColumnInfo,
+    FolderListing,
+    SheetInfo,
+    WorkbookInfo,
+)
+from slim_sheet.services.macros import macro_warnings
 from slim_sheet.services.workbook import OpenFile, open_file
 
 SAMPLE_ROWS = 60
@@ -22,6 +33,8 @@ def overview(path: str, settings: Settings) -> WorkbookInfo:
             format=handle.format,
             size_bytes=handle.path.stat().st_size,
             sheets=sheets,
+            warnings=(*macro_warnings(handle.path), *package_warnings(handle.path)),
+            hidden=tuple(hidden_content(handle.path)),
         )
 
 
@@ -51,3 +64,26 @@ def _columns(
         dtype = infer_type([row[offset] for row in body])
         result.append(ColumnInfo(index_to_col(left + offset), label or None, dtype))
     return tuple(result)
+
+
+SPREADSHEET_SUFFIXES = (
+    ".xlsx", ".xlsm", ".xltx", ".xltm", ".xlsb", ".xls", ".ods", ".numbers",
+    ".csv", ".tsv", ".txt", ".parquet", ".json", ".jsonl", ".ndjson",
+)  # fmt: skip
+MAX_LISTED = 200
+
+
+def list_workbooks(path: str, settings: Settings) -> FolderListing | None:
+    """A folder inside the roots -> its spreadsheets (recursive); a file -> None."""
+    folder = resolve_folder(path, settings)
+    if folder is None:
+        return None
+    found = sorted(
+        p for p in folder.rglob("*")
+        if p.is_file() and p.suffix.lower() in SPREADSHEET_SUFFIXES
+        and ".slim-sheet" not in p.parts and not p.name.startswith(("~$", ".slim-"))
+    )  # fmt: skip
+    items = tuple(
+        (item.relative_to(folder).as_posix(), item.stat().st_size) for item in found[:MAX_LISTED]
+    )
+    return FolderListing(folder.name or str(folder), items, len(found))

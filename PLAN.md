@@ -4,7 +4,7 @@
 > Claude (Pro or Free), OpenCode, Codex, Cursor, Ollama, LM Studio, Open WebUI,
 > llama.cpp — from a 3B local model to a frontier model.
 
-Status: **Phases 0–5 delivered (v0.1.0 ready to publish) — agent eval in progress** · Owner: j4flmao · Last revised: 2026-10-20
+Status: **Phases 0–7 delivered (6 = design system, 7 = completeness, §17); Phase 8 (read-only macros + parity polish, §11.10) delivered; VBA writing awaits an owner decision — agent eval in progress** · Owner: j4flmao · Last revised: 2026-10-21
 
 ---
 
@@ -19,7 +19,7 @@ slim-sheet bets on three things the market does not do together:
 1. **Read everything, locally.** One reader layer for `xlsx xlsm xltx xltm xlsb xls ods fods
    csv tsv txt parquet json/ndjson numbers` (+ Google Sheets via export URL later). No Office,
    no network, no Node — just `uvx slim-sheet`.
-2. **Small-model first.** A *tiered tool surface* (`lite` = 7 tools, `standard` ≈ 16, `full` ≈ 28),
+2. **Small-model first.** A *tiered tool surface* (`lite` = 8 tools, `standard` = 18, `full` = 30),
    flat primitive arguments, compact Markdown/TSV output under a hard token budget, and
    errors that tell the model exactly how to retry. A 7B model in LM Studio must be able to
    finish real tasks.
@@ -70,6 +70,24 @@ slim-sheet bets on three things the market does not do together:
 - **pandas-mcp-server:** *anti-lesson* — never `exec` model-written Python. We expose SQL (read-only by default) and a closed set of transforms instead.
 - **xlsx-for-ai:** repair/diff/audit is valued — we do it **offline**.
 - **Speakeasy / Archestra findings:** small models hallucinate tool names past ~20 tools and degrade sharply past ~40 → our `lite` tier is ≤ 8 tools.
+
+### 1.3 Competitive update (2026-10-21) — why Phase 7 exists
+- **haris-musa/excel-mcp-server v2** (rewrite, 2026-10-10; v2.2.1 on 2026-10-18; 4,253★; ~1.2M PyPI downloads/month):
+  46 tools + 2 opt-in VBA tools, `--tools` feature areas (our tiers' role), read-only mode, folder confinement, atomic
+  saves, localhost bearer token, a formula guard (WEBSERVICE/RTD/CALL). It now ships fill/copy/sort/replace/merge,
+  `set_sheet_layout` (freeze, widths, filter, print, protection), notes, images, native PivotTables + slicers,
+  sparklines, `trace_formula`, `goal_seek`. Its cost is context (≈14k characters for the formatting area alone).
+- **sbroenne/mcp-server-excel** (v2.5.0, 2026-10-19): 63 tools / 421 operations over COM (Windows + Excel only):
+  Power Query, DAX, VBA, PDF export. **negokaz** is dormant (last release July 2025). Microsoft ships **no**
+  first-party Excel MCP server. Google Sheets servers (xing5, freema, taylorwilsdon) and Graph servers (softeria) are
+  cloud connectors.
+- **Still unique to slim-sheet:** SQL over sheets, profile, anomalies, joins, workbook diff, undo journal, xls/ods/
+  Numbers/parquet/encrypted reads, brands and one-call reports. These answer the loudest user complaint about AI in
+  Excel — trust ("no easy way to diff a spreadsheet", silent wrong numbers) — and stay the headline.
+- **Benchmarks moved to debugging:** SpreadsheetBench 2 (June 2026, 321 tasks): best model 34.89% overall, **12% on
+  debugging**; top failure "wrong target selection after insufficient inspection". SheetCopilot: fill-down 46.6% of
+  tasks, PivotTables 18.6% (+9.5% pivot charts), copy-paste 11.8%, sort 5.9%, filter 4.1%, freeze 3.2%, merge 2.7%.
+  SpreadsheetBench: ~23% of forum tasks ask for "a macro", mostly row restructuring (copy/delete rows matching a rule).
 
 ---
 
@@ -200,40 +218,46 @@ slim-sheet/
 ## 5. Tool surface
 
 Naming: `verb_noun`, ≤ 3 words, no prefixes (hosts already namespace by server). Every tool takes `path` first.
+The tables below describe what is **shipped** (Phase 7 surface, §17.2). Merged in Phase 7: `validate_formula` →
+`evaluate check_only`, `split` → `convert split_by`, `add_validation` + `conditional_format` → `rules`,
+`rows_ops` → `range_ops`; the CLI answers the old names with the new command.
 Every list-returning tool takes `cursor` and `max_tokens`.
 
-### 5.1 `lite` tier (7 tools — the whole product for a 7B model)
+### 5.1 `lite` tier (8 tools — the whole product for a 7B model)
 
 | Tool | Args (flat) | Returns |
 |---|---|---|
-| `overview` | `path` | Format, sheets, per-sheet used range, detected tables (region, header row, columns + inferred types), formulas count, merged/hidden flags. ≤ 800 tokens for any workbook |
+| `overview` | `path` | Format, sheets, per-sheet used range, detected tables (region, header row, columns + inferred types), merged/hidden flags, warnings for macros / external links / data connections. A folder lists its spreadsheets. ≤ 800 tokens |
 | `read` | `path, sheet?, range?, table?, cursor?, max_tokens?, format?` | Markdown/TSV/JSON grid with A1 coordinates, `next` cursor |
 | `find` | `path, text, sheet?, regex?, max_results?` | Hits as `Sheet!A1: value` |
 | `query` | `path, sql, offset?, max_tokens?` | One read-only SELECT over tables named `"<sheet>"` (largest region) and `"<sheet>.2"`, `"<sheet>.3"` (further regions); flat files are table `data`. Paging by `offset` (stateless re-run). Cross-file SQL deferred to `merge` (Phase 2) |
 | `profile` | `path, sheet?, columns?` | Per column: type, nulls %, exact distinct, min/max/mean/median, top 3 values (skipped for all-unique columns). `sheet` also accepts region tables like `Orders.2`. Pattern hints → Phase 2 |
 | `write` | `path, sheet, range, values, out_path?, overwrite?` | Writes a 2-D array anchored at `range`'s top-left (full range must match shape). **Working-copy semantics**: edits `<stem>.slim.xlsx` (created on first write, accumulates after); `overwrite=true` edits the original; every replaced file is journaled. Missing sheet is created. xlsx/xlsm only |
+| `build_report` | `path, data_sheet, title, kpis?, charts?, subtitle?, sheet?, brand?, out_path?, overwrite?` | Phase 6 (§16.3): a branded one-screen dashboard from compact strings (`'Revenue=sum:Total'`, `'rank:Region:Total'`): KPI tiles with live formulas, auto chart type/sort/insight title, `<sheet> data` helper sheet, source footer. Lite because it replaces ~40 styling calls a small model cannot sequence |
 | `explain_formula` | `formula` or `path, cell, sheet?` | Calls innermost-first with signatures, references, errors (paren balance, arity, `;` separators, trailing operator), warnings (unknown/misspelled function, 2019+/365-only functions). `cell` accepts `Sheet!C7` |
 
-### 5.2 `standard` tier adds (6 shipped, cap 18)
+### 5.2 `standard` tier adds (10 shipped → 18 tools, cap 18)
 Shipped in Phase 2: `clean`, `anomalies`, `merge`, `convert`, `diff`, `undo` → standard = 13 tools.
 Shipped in Phase 3: `validate_formula`, `evaluate`, `describe_cell` → standard = 16 tools.
+Phase 6 added `style_sheet`; Phase 7 merged `validate_formula` into `evaluate` and added `what_if` → 18.
 
 | Tool | Args (flat) | Returns |
 |---|---|---|
-| `validate_formula` | `formula` or `path, cell`; `sheet?, path?, target?` | OK / problems for target Excel (`xls`, `2007`…`2021`, `365`; default from the file): syntax, `#NAME?` functions, version gaps with replacement suggestions, missing sheets/defined names, unquoted sheet names, grid bounds, network/external refs |
-| `evaluate` | `formula` and/or `path, cell, sheet?` | Offline result (scalar or spilled array), the inputs read, precedents recomputed, notes (date rendering, volatility, stale cached value). Needs extra `[formula]` |
-| `describe_cell` | `path, cell, sheet?` | Value, formula, type, number format, font, fill, alignment, comment, hyperlink, merge, data validation, conditional-format count, protection |
+| `evaluate` | `formula` and/or `path, cell, sheet?, check_only?, target?` | Offline result (scalar or spilled array), inputs read, precedents recomputed, notes. `check_only=true`: syntax, `#NAME?`, version gaps for `target` (`xls`, `2007`…`365`) with replacements, missing sheets/names, external refs. Needs extra `[formula]` to calculate |
+| `style_sheet` | `path, sheet, range?, preset?, number_format?, total_row?, brand?, out_path?, overwrite?` | Phase 6 (§16.2): one-call table styling (`report`/`data`/`finance`/`striped`/`minimal`): header, inferred number formats (reported back per column), total row, widths, freeze, filter, sheet view |
+| `describe_cell` | `path, cell, sheet?, trace?, depth?` | Value, formula, format, font, fill, alignment, note, hyperlink, merge, validation, protection; `trace=precedents\|dependents` walks formulas across sheets (depth ≤ 10, 60 lines) |
+| `what_if` | `path, outputs, inputs, op?, target?, sheet?` | Read-only: `delta` (inputs `B3=8%` → base/new/change per output), `goal_seek` (one input, `target`), `grid` (1-D or 2-D sensitivity, ≤ 15 values per axis). Every formula between inputs and outputs recomputed offline |
 
 | Tool | Args (flat) | Returns |
 |---|---|---|
 | `clean` | `path, ops, sheet?, keys?, apply?, out_path?, overwrite?` | **Preview by default** (counts per op + up to 8 `A1: before -> after` samples + notes); `apply=true` writes the cleaned table to `<stem>.clean.xlsx` (or same extension for flat files) |
-| `anomalies` | `path, sheet?, columns?, max_results?` | Findings with A1 addresses, most severe first: duplicate_key, type_mismatch, outlier, variant, date_range, whitespace |
-| `merge` | `path, other_path, keys, how?, sheet?, other_sheet?, out_path?, overwrite?, max_tokens?` | Unmatched counts on both sides, row-multiplication warning, budgeted preview; full result saved only with `out_path` |
-| `convert` | `path, out_path, sheet?, overwrite?` | Output format from extension: xlsx (whole workbook cell-for-cell, values only) or csv/tsv/parquet/json (one table) |
+| `anomalies` | `path, sheet?, columns?, max_results?, scope?` | Data findings (duplicate_key, type_mismatch, outlier, variant, date_range, whitespace) and, with `scope=formulas\|all`, a model audit: error_root, broken_reference, inconsistent_formula, hardcoded_value, double_count, hardcode_in_formula |
+| `merge` | `path, other_path, keys, how?, sheet?, other_sheet?, out_path?, overwrite?, max_tokens?, compare?, tolerance?` | Unmatched counts on both sides, row-multiplication warning, budgeted preview; `how=reconcile` labels rows matched / different / only_left / only_right with left, right and diff columns (numbers equal within `tolerance`); full result saved only with `out_path` |
+| `convert` | `path, out_path?, sheet?, overwrite?, split_by?, mode?` | Output format from extension: xlsx (values only) or csv/tsv/parquet/json (one table; CSV text starting `= + - @` is defused). `split_by` writes one sheet (`<stem>.split.xlsx`) or file per value, ≤ 200 groups |
 | `diff` | `path, other_path, sheet?, key?, max_results?` | Cell mode (values) with sheets added/removed, or keyed row mode (added/removed/changed, column changes) |
 | `undo` | `path` | Steps back one journaled write (write/clean/convert/merge); undoing a creation removes the file; undone states are kept |
 
-### 5.3 `full` tier adds (12 shipped → 28 tools, cap 30)
+### 5.3 `full` tier adds (12 shipped → 30 tools, cap 30 — full)
 
 Every editing tool runs through one edit session (`services/editing.py`): working-copy target, journal for `undo`,
 atomic save, and a warning only for parts openpyxl really drops (slicers, timelines, form controls, charts/images it
@@ -241,17 +265,17 @@ could not read back).
 
 | Tool | Args (flat) | Notes |
 |---|---|---|
-| `create_workbook` | `path, sheets?, overwrite?` | New .xlsx; every sheet name validated (31 chars, no `[]:*?/\`) |
+| `create_workbook` | `path, sheets?, overwrite?, brand?` | New .xlsx; every sheet name validated (31 chars, no `[]:*?/\`); brand theme + named styles written (§16.1) |
 | `sheet_ops` | `path, op, sheet, new_name?, position?` | add / rename / delete / copy / move / hide / unhide. **Rename rewrites formulas, defined names and chart series** that point at the sheet; delete warns about formulas/charts left reading it; the last visible sheet is protected |
-| `rows_ops` | `path, sheet, op, at, count?` | insert/delete rows/cols with Excel's reference rules (`core/shift.py`): formulas on every sheet, merges, defined names, data validation, conditional formatting, tables, autofilter, chart series and anchors. Deleted references become `#REF!` and are listed; deleting a whole table is refused |
+| `range_ops` | `path, sheet, op, range?, to?, by?, desc?, find?, replace?, where?, header?` | `fill` (formulas translated; two seeds = series), `copy`/`move`/`transpose` (other sheets too), `sort` (header kept, blanks last), `replace` (values only), `insert`/`delete` rows `5:7` or columns `C:E` with Excel's reference rules (`core/shift.py`), `where` = DuckDB SQL condition on cached values for copying/deleting matching rows (≤ 5,000) |
 | `name_ops` | `path, op, name?, ref?` | list / add / delete defined names; refs are normalised to absolute `'Sheet'!$A$1:$B$2` |
-| `format_range` | `path, sheet, range, bold?, italic?, font_color?, font_size?, fill_color?, number_format?, align?, wrap?, border?, autofit?` | Colours by name (`light_red`, `yellow`…) or `#RRGGBB`; number formats by preset (`currency`, `percent`, `date`, `thousands`, `vnd`…) or raw |
+| `format_range` | `path, sheet, range, role?, bold?, italic?, font_color?, font_size?, fill_color?, number_format?, align?, valign?, wrap?, border?, merge?, autofit?` | `role` applies a semantic brand style first (§16.1); named formats follow the brand (`percent`, `growth`, `m`…); `merge=true` merges, `false` unmerges inside the range |
 | `set_table` | `path, sheet, range, name, style?` | Validates name, unique non-empty headers, no overlap with other tables |
-| `add_validation` | `path, sheet, range, type, values?, min?, max?, formula?, message?, allow_blank?` | list / whole / decimal / date (ISO bounds → `DATE()`) / text_length / custom |
-| `conditional_format` | `path, sheet, range, rule, value?, value2?, fill_color?, font_color?` | greater_than, less_than, between, equal, not_equal, text_contains, duplicates, unique, top_n, bottom_n, above_average, color_scale, data_bar, formula |
-| `add_chart` | `path, sheet, type, data_range, anchor?, title?, x_title?, y_title?` | column / bar / line / pie / area / scatter; header row = series names, first column = categories |
-| `pivot` | `path, rows, values, agg?, columns?, sheet?, to_sheet?, out_path?` | Static summary via DuckDB `GROUP BY` / `PIVOT` (≤ 50 pivot columns); returns the SQL; saves to a new sheet or file |
-| `split` | `path, by, sheet?, mode?, out_path?` | One sheet per value (`<stem>.split.xlsx`) or one file per value (`<stem>_split/`), ≤ 200 groups |
+| `rules` | `path, sheet, range, kind, values?, value?, value2?, formula?, message?, allow_blank?, fill_color?, font_color?` | Validation (`list`/`dropdown`, whole, decimal, date, text_length, custom) or highlight rules (greater_than … data_bar, formula); formulas pass the guard |
+| `add_chart` | `path, sheet, type, data_range, anchor?, title?, x_title?, y_title?, highlight?, brand?` | `auto` / column / bar / line / pie / doughnut / area / scatter; always brand-styled (§16.4); header row = series names, first column = categories. `sparkline`: one line sparkline per row of a numbers block at `anchor` (x14 extension; kept through later edits) |
+| `pivot` | `path, rows, values, agg?, columns?, sheet?, to_sheet?, out_path?, native?` | Static summary via DuckDB `GROUP BY` / `PIVOT` (≤ 50 pivot columns); returns the SQL; saves to a new sheet or file. `native=true` + `to_sheet`: a real refreshable Excel PivotTable (1 row field, optional column field, ≤ 3 values) with its values pre-filled |
+| `sheet_layout` | `path, sheet, freeze?, widths?, heights?, filter_range?, hide?, unhide?, gridlines?, zoom?, print_area?, landscape?, fit_width?, protect?` | Only given settings change; widths `['A=14','B:D=12']`; protection without password (secrets never travel in tool args) |
+| `annotate` | `path, sheet, op, cell, text?, url?, image_path?, target?` | `note`, `link` (https/mailto or an in-workbook cell; other schemes refused), `image` (inside roots; extra `[images]`), `remove` note/link/image/chart at a cell |
 | `recalc` | `path, out_path?` | Headless LibreOffice with a throwaway profile forcing "always recalculate"; reports how many formulas now have cached values. `missing_dependency` + install hint when LibreOffice is absent |
 
 ### 5.4 Response envelope
@@ -331,7 +355,7 @@ Wide sheets: if a single row exceeds 25% of budget, auto-switch to **column wind
 | SQL that writes / reads arbitrary files | DuckDB connection with `enable_external_access=false` after registering allowed files; statement allow-list `SELECT/WITH/DESCRIBE/SUMMARIZE` unless `SLIM_SHEET_SQL_WRITE=1` |
 | Formula injection (CSV `=HYPERLINK(...)`, DDE) | On CSV export, escape leading `= + - @ \t \r` (OWASP); `write` refuses `WEBSERVICE`, `CALL`, DDE, external refs unless `allow_external=true` |
 | Zip bombs / huge files | Pre-check compressed vs. uncompressed size ratio (> 100×) and `SLIM_SHEET_MAX_FILE_MB` (default 200) |
-| Macros | Never executed. `xlsm` macros preserved on write; VBA source read-only (`full` tier) |
+| Macros | Never executed (decision 2026-10-21, §17.3). `xlsm` macros preserved on write (`keep_vba`); `overview` warns when a file has macros. Read-only VBA (`read sheet='#vba'`, all tiers that have `read`), triage (`anomalies scope=macros`) and `.bas/.cls` export shipped in Phase 8 (§11.10); writing VBA is deferred behind an owner decision |
 | Locked files (Excel open on Windows) | Detect `PermissionError` → `file_locked` with hint to close Excel or write to `out_path` |
 
 ---
@@ -463,13 +487,154 @@ Wide sheets: if a single row exceeds 25% of budget, auto-switch to **column wind
       the `.mcpb` was not packed or installed in Claude Desktop (needs `npx @anthropic-ai/mcpb pack`); CI has not run yet
 - [ ] MCP `tools/list` itself still carries pydantic titles (SDK-generated); only the `schema` export is simplified
 
+### 11.7 Post-release fix (2026-10-20): agents could not find editing tools
+- Problem found in hands-on testing on every host: agents reported that slim-sheet "has no tool to insert rows, color
+  cells, add charts or pivot" and fell back to writing openpyxl code. Root causes: the default tier was `standard`
+  (16 tools), so any host that did not pass `SLIM_SHEET_TIER` got no editing tools; and the server instructions only
+  mentioned reading tools, so agents assumed the rest did not exist.
+- Fix: default tier is now `full` (28 tools); blank values and unresolved host placeholders (`${user_config.tier}`) fall
+  back to the default instead of stopping the server; the server instructions are generated from the enabled tools,
+  grouped by capability, tell agents to use the tools instead of writing Python, and list any tools hidden by the tier.
+- Decision change: "small-model first" now means *opt-in* `lite`/`standard` tiers, not a small default.
+
+### 11.8 Phase 6 — design system (delivered 2026-10-21)
+Goal: professional, company-branded output with the *least* description from the model. Research (temporary, not
+committed) surveyed IBCS, FAST/ICAEW finance conventions, the UK Analysis Function spreadsheet guidance, Microsoft
+accessibility guidance, Storytelling-with-Data/Few/FT Visual Vocabulary chart rules, and competing MCP servers (none
+ships themes, brands or a one-call report builder; all expose nested per-property style objects). Design in §16.
+- [x] `core/design.py`: brands, profiles (`finance`/`ibcs`/`gov`), named number formats, semantic roles
+- [x] `core/report_spec.py`: number-format inference, chart choice by intent, compact KPI/chart grammar, insight titles
+- [x] `adapters/writers/theme.py` (Office theme XML + named styles), `chart_style.py` (clean charts), `adapters/brand.py`
+- [x] Tools: `build_report` (lite), `style_sheet` (standard); `role` on `format_range`, `brand` on `create_workbook`,
+      `auto`/`doughnut`/`highlight`/`brand` on `add_chart`; every chart now writes `<c:delete val="0"/>` (Excel 365 hid
+      openpyxl axes), no rounded corners, no border, no gridlines on bars
+- [x] Autofit measures numbers as formatted (`0.2723` in `0.0%` is 5 characters, not the raw digits)
+- [x] Verified by rendering through desktop Excel (PDF export): the dashboard fits one landscape page; the `slim` and
+      `office` brands recolour tiles, charts and theme
+- [ ] Not verified: Excel's built-in table/chart *style galleries* re-skinning from the injected theme in every Office
+      version; LibreOffice font substitution for Aptos (`modern` brand); chart alt text (openpyxl cannot write `descr`)
+- [ ] Next: KPI comparison line (vs prior period / target with ▲▼), brand from `.thmx`/branded `.xlsx`,
+      conditional-format presets in brand colours, an accessibility lint in `overview`
+
+### 11.9 Phase 7 — completeness and enterprise readiness (approved 2026-10-21; P0 + part of P1/P2 delivered 2026-10-21)
+Source: competitor/demand/spec gap analysis (§1.3, §17). Effort: S < 2 days, M ≈ 1 week, L = 2–4 weeks incl. tests/evals.
+No tier cap is raised: five consolidations free the slots for four new tools (§17.2).
+Delivery notes (2026-10-21): verified in desktop Excel via COM (sort, fill, copy-where, merge, note, internal and
+web links, image, dropdown, protection, print area). CSV-injection defusing and the write-time formula guard already
+existed; the guard moved to `core/guard.py` and now also covers `rules`, KPI formulas and outbound HYPERLINK/IMAGE.
+Second pass (2026-10-21, continued): native PivotTables verified in desktop Excel (rows; rows + column field; several
+values; refresh after later edits) — the file also carries the computed layout so it reads correctly before Excel
+refreshes; sparklines verified in Excel and kept through later edits (openpyxl used to drop them); legacy and
+2026-07-28 clients tested in-process; services return models (TraceResult, WhatIfResult, FolderListing) rendered by
+core renderers.
+Third pass: `range_ops values_only=true` pastes Excel's cached values (formulas without one are calculated by the
+offline engine); `move` now behaves like Excel's cut/paste — references anywhere in the workbook (and defined names)
+that point entirely inside the moved block follow it, moved formulas keep reading their old cells (`core/move_refs.py`);
+the eval suite gained 6 tasks for range_ops, build_report, what_if and formula checks, and skips tasks a tier cannot
+serve. Deviations: the "new errors since last write" check is not built;
+old tool names are not kept as CLI aliases — the CLI answers them with the replacement command.
+
+**P0**
+- [x] Annotations per tool in `toolspec.py`: explicit `destructiveHint` (false for working-copy writes, true for
+      `overwrite`/delete paths), `idempotentHint`, `openWorldHint=false`, human `title`; deterministic tool order (S)
+- [x] Protocol tests: legacy (initialize) + 2026-07-28 (discover) clients against the same server, `server/discover`, validation errors returned
+      as `isError` results, OpenAI-strict and Gemini schema acceptance (S)
+- [x] Security: formula guard on `write`/`range_ops`/`annotate` (WEBSERVICE, FILTERXML, RTD, CALL, REGISTER.ID, DDE,
+      external workbook refs, external HYPERLINK) unless `allow_external=true`; CSV-injection neutralisation in
+      `convert` unless `raw=true`; cell text returned inside a marked untrusted block and never echoed into `hint`;
+      `overview` warns about macros, external links and data connections (S–M)
+- [x] `range_ops` replacing `rows_ops`: `op=fill|copy|move|transpose|sort|replace|insert|delete`, `where` (DuckDB SQL
+      predicate) for criteria-based row copy/delete, Excel reference shifting kept (L)
+- [x] Consolidations: `validate_formula` → `evaluate check_only=true`; `split` → `convert split_by=, mode=`;
+      `add_validation` + `conditional_format` → `rules kind=...`; old names kept as CLI aliases only (M)
+- [x] `format_range merge=true|false` (merge/unmerge; named so it never collides with the table-join `merge`) (S)
+- [x] `sheet_layout`: freeze, widths (`["A:12","B:30"]`), heights, autofilter, hide rows/cols, print area/orientation/
+      fit, sheet protection (M)
+- [x] Model audit: `describe_cell trace=precedents|dependents, depth=` (multi-hop, cross-sheet) and
+      `anomalies scope=formulas|all` (hardcodes in formulas, row/column pattern breaks, error root cause, sign and
+      colour-convention breaks, "new errors since last write" check) (M + M)
+
+**P1**
+- [x] Native refreshable PivotTable: `pivot native=true` (static output stays the default until proven in Excel and
+      LibreOffice) (L)
+- [x] `what_if` (read-only, in memory): `op=delta|goal_seek|grid`, `inputs=["B3=0.08"]`, `outputs=[...]`,
+      1-D/2-D sensitivity grid (M–L)
+- [x] `annotate`: `op=note|link|image|remove` (notes, hyperlinks, images inside roots, delete charts/images/notes) (M)
+- [x] Structured output: `outputSchema` + `structuredContent` on overview/read/query/profile/find/diff, keeping the
+      Markdown/TSV text block (M)
+- [x] HTTP-mode safeguards: per-client rate limits (`SLIM_SHEET_RATE_LIMIT`), Origin 403
+      (`SLIM_SHEET_ALLOWED_ORIGINS`), opt-in redacted per-call audit log (`SLIM_SHEET_AUDIT_LOG`). They only act in
+      `--transport streamable-http` or when configured; local stdio use is unaffected.
+- [-] **Dropped (scope decision 2026-10-21, §17.3):** OAuth 2.1 resource-server mode, scopes per tier, per-user roots.
+      slim-sheet is a local server that each user attaches to their own agent; revisit only if a shared remote
+      deployment becomes a goal.
+- [x] Supply chain (written; runs on the first release tag): release with build-provenance attestations, PyPI
+      attestations and an SPDX SBOM; non-blocking MCP Inspector CLI job in CI. No container image: users attach the
+      server to their agent and run it with uvx/uv (a Dockerfile was written and removed, 2026-10-21).
+- [-] **Dropped:** the official MCP conformance suite (unstable; the in-process legacy + 2026-07-28 client tests cover
+      what local hosts use).
+
+**P2**
+- [x] Sparklines via `add_chart type=sparkline` (XML injection after save); existing sparklines kept through edits.
+      Editing existing charts stays open (M)
+- [x] `merge how=reconcile` (shipped as a `how` value, not a new `mode` param; tolerance, matched/different/one-sided) and documented forecast/variance SQL recipes (M)
+- [x] `overview` on a folder lists workbooks inside the roots (S)
+- [ ] Resources and prompts — **partly delivered**: prompts `dashboard`, `audit_model`, `clean_data`,
+      `format_workbook` (only those whose tools are enabled) and resources `slim-sheet://grammar`, `slim-sheet://brands`;
+      still open: `sheet://` templates, `resource_link` to outputs, completions, progress notifications,
+      elicitation (MRTR) to confirm `overwrite=true` (M)
+- [-] **Dropped (§17.3):** cloud-store extra (Graph/Drive/S3). Files live on the user's machine; the agent passes paths.
+
+### 11.10 Phase 8 — macros (read-only) and parity polish (approved and delivered 2026-10-21)
+Tier caps unchanged (8/18/30); no new tool. Running VBA stays a non-goal (§17.3, reason recorded).
+
+**P0**
+- [x] `SLIM_SHEET_MAX_CELLS` (default 3,000,000) checked before full loads; `too_large` error with hint (S)
+- [x] `adapters/vba.py`: MS-OVBA reader on olefile (BSD), decompression cap 16 MB, OLE sector checks, code-page decode
+      that fails loudly; fixtures for xlsm, xlsb, xls, signed, locked, stomped, XLM (M)
+- [x] `overview` macro warnings from content types (not filenames): modules, AutoExec, signed, locked, XLM sheets,
+      Mark of the Web; hint shows `read(sheet='#vba')` (S)
+- [x] `read sheet='#vba'` (module list) and `range='<Module>'` (source, budgeted, `next` cursor, untrusted block) (M)
+- [x] Fix PLAN §8 "VBA source read-only (full tier)" to match what ships (S)
+
+**P1**
+- [x] `anomalies scope=macros` risk triage (AutoExec, suspicious calls, IOCs, obfuscation, stomping signal) (S–M)
+- [x] `convert` to `.bas/.cls` side files for macro-enabled inputs (S)
+- [x] Prompt `replace_macro` + 6 eval tasks from macro-phrased SpreadsheetBench items (S)
+- [x] `recalc` on .xlsm: hash `vbaProject.bin` before/after, restore the original part if LibreOffice changed it (S)
+- [x] `range_ops op=clear what=contents|formats|rules|all`, `op=split` (text to columns), `formats_only=true` (S–M)
+- [x] `convert` CSV options: `delimiter`, `encoding`, `decimal` (M) — `read` keeps DuckDB auto-detection; a CSV that
+      needs explicit options is converted first (`convert(path, 'x.xlsx', delimiter=';', decimal=',')`)
+
+**P2**
+- [x] `set_table totals=true` and resize on re-run (S)
+- [x] `add_chart replace=true` (S–M)
+- [x] `write` reports spill-blocked cells (S)
+- [x] `overview` hidden-info report; `sheet_layout calc_mode=`, `protect_structure=` (M)
+- [ ] Decision gate: opt-in VBA writing via `sheet_ops op=vba_write|vba_delete` behind `SLIM_SHEET_ALLOW_VBA_WRITE=1`
+      (source-only rebuild, refuse signed/forms/locked) — only after owner approval and an Excel verification matrix (L)
+
+**Found while building (fixed in Phase 8)**
+- [x] Formulas with functions newer than Excel 2007 were stored without `_xlfn.`: `=FILTER(...)` made Excel refuse
+      the whole file, others opened as `#NAME?`. `core/file_formula.py` stores them as Excel does (`_xlfn.`,
+      `_xlfn._xlws.` for FILTER/SORT, `_xlpm.` for LET/LAMBDA names; all 161 checked in Excel 365) and `read` /
+      `evaluate` show them unprefixed.
+- [x] Spilling formulas are written as dynamic arrays (`cm="1"` + XLDAPR `xl/metadata.xml`, verified in Excel), and
+      `writers/dynamic_arrays.py` keeps that metadata through every edit (openpyxl dropped it: spills became CSE).
+
+Source: competitor recheck + local-VBA research (temporary report, 2026-10-21). Evidence: ~26% of SpreadsheetBench
+tasks mention VBA/macros, but ~70% of a hand-coded sample are bulk edits slim-sheet already does natively; haris-musa
+ships `read_vba` (+ opt-in write), PSU3D0 `inspect_vba`; sbroenne runs macros via Excel COM (Windows only).
+Dependency rule: the VBA reader is written in-house on olefile (BSD); oletools is not used (hard GPL-3 pcodedmp
+dependency, swaps sys.stdout, which would corrupt the stdio protocol channel).
+
 ## 12. Quality & evaluation
 
 - **Unit**: pure core (A1 math, budget, detect) — property tests with `hypothesis`.
 - **Integration**: fixtures generated by `tests/fixtures/build.py` (openpyxl for xlsx, csv/parquet via duckdb; xls/xlsb/ods
   committed as small binaries because no pure-Python writer exists — documented provenance).
 - **MCP contract tests**: spawn server over stdio with the official client, assert tool list per tier and envelope shape.
-- **Agent eval suite** (`evals/`): 40 tasks (e.g. "total revenue by region in Q1", "find duplicate invoice numbers",
+- **Agent eval suite** (`evals/`): 51 tasks (lite runs 46, standard 48 — tasks a tier cannot serve are skipped) (e.g. "total revenue by region in Q1", "find duplicate invoice numbers",
   "fix the broken VLOOKUP in C7") × models {qwen2.5-7b, llama3.1-8b, gemma3-12b, claude} × tiers. Metric: task success,
   tool-call validity rate, tokens consumed. Run manually per release; results in `evals/RESULTS.md`.
 - **Perf**: `pytest-benchmark` on 100k/1M-row fixtures; RSS via `tracemalloc`.
@@ -479,7 +644,7 @@ Wide sheets: if a single row exceeds 25% of budget, auto-switch to **column wind
 
 | Var | Default | Meaning |
 |---|---|---|
-| `SLIM_SHEET_TIER` | `standard` | `lite` \| `standard` \| `full` |
+| `SLIM_SHEET_TIER` | `full` | `full` \| `standard` \| `lite`; blank or unresolved `${...}` placeholders fall back to the default |
 | `SLIM_SHEET_TOOLS` | — | Explicit comma list; overrides tier |
 | `SLIM_SHEET_ROOTS` | CWD | `os.pathsep`-separated allowed directories |
 | `SLIM_SHEET_MAX_TOKENS` | `1500` | Default response budget |
@@ -488,6 +653,11 @@ Wide sheets: if a single row exceeds 25% of budget, auto-switch to **column wind
 | `SLIM_SHEET_TOKEN` | — | Bearer token for `--transport streamable-http`; required to bind beyond loopback |
 | `SLIM_SHEET_PASSWORD` | — | Password for encrypted workbooks (extra `crypto`); env only, never a tool argument |
 | `SLIM_SHEET_SOFFICE` | autodetect | LibreOffice binary for `recalc` |
+| `SLIM_SHEET_AUDIT_LOG` | — | JSONL file: one redacted record per tool call (user, tool, file/sheet/range, status, error, ms) |
+| `SLIM_SHEET_AUDIT_USER` | OS user | Principal written to the audit log |
+| `SLIM_SHEET_RATE_LIMIT` | `120` | streamable-http: tool calls per minute per client (token or peer address); `0` = off |
+| `SLIM_SHEET_ALLOWED_ORIGINS` | — | Comma list of browser origins accepted besides loopback (others get 403) |
+| `SLIM_SHEET_BRAND` | `slim` | Built-in brand (`slim`, `office`, `modern`, `mono`, `gov`) or a brand `.json` path (operator config, not sandboxed); see §16.1 |
 | `SLIM_SHEET_SQL_WRITE` | — | *Planned, not implemented*: `query` is always read-only today |
 | `SLIM_SHEET_LOG_LEVEL` | — | *Planned, not implemented*: logs go to stderr at WARNING |
 
@@ -505,4 +675,104 @@ OpenAI-compatible APIs via `slim-sheet schema`, and a token-protected remote ser
 | openpyxl drops unsupported parts (slicers, new charts) on save | H | Default writes to a new file; warn with `meta.lost_features` detected by diffing zip parts |
 | Small models still misuse SQL | M | `query` errors include schema + an example; `profile` suggests example queries |
 | Formula eval mismatch vs Excel | M | Return `unsupported_function` instead of guessing; `recalc` via LibreOffice for truth |
-| Scope creep toward haris-musa's 45 tools | H | Tier budget is a hard rule: lite ≤ 8, standard ≤ 18, full ≤ 30 |
+| Scope creep toward haris-musa's 46 tools | H | Tier budget is a hard rule: lite ≤ 8, standard ≤ 18, full ≤ 30; new capabilities consolidate (§17.1) |
+| Phase 7 renames break early users | M | Done before 1.0 (still 0.1.0, unpublished); CHANGELOG lists every rename; CLI keeps old names as aliases |
+| `range_ops` has eight ops for small models | M | Full tier only; one example call in its description; evals measure op choice before any promotion to lite |
+
+## 16. Design system (Phase 6)
+
+Principle: **the model chooses names, never hex codes or format strings.** Everything visual is resolved
+deterministically from a brand plus the data shape, so design quality is a tested server property, not prompt craft.
+
+### 16.1 Brands, profiles, roles
+- Resolution order: tool argument `brand` → `SLIM_SHEET_BRAND` → built-in `slim`. A brand is a built-in name or a
+  `.json` file (only `name` required; keys `base, primary, palette, heading_font, body_font, ink, muted, rule, band,
+  good, bad, profile, negatives, currency`). A file passed as a tool argument must be inside the roots.
+- Built-ins: `slim` (accent #156082 + Okabe-Ito palette, Calibri), `office` (Office 2013–2022), `modern` (Office 2023+,
+  Aptos), `mono` (IBCS-style greys, Arial, minus signs), `gov` (UK government style: no fills, minus signs, long dates).
+- Profiles change conventions, not colours: `finance` = `#,##0_);(#,##0);"–"_)`, totals with a double bottom rule;
+  `ibcs` = minus signs; `gov` = no fills, no zero-dash, no freeze panes, `d mmm yyyy`.
+- Writing a brand = Office theme XML (`wb.loaded_theme`: dk2/lt2/accent1-6, heading/body fonts) + named cell styles
+  ("<brand> header", …). A workbook that already carries a company theme keeps it unless the brand is explicit.
+- Roles: `title, subtitle, section, header, total, input, formula, link, external, check, kpi_label, kpi_value,
+  kpi_note, note, good, bad` (finance colour code: inputs blue #0000FF on #FFF2CC, links green #326405,
+  external/check red #B30000 — the UK-tested accessible text colours).
+- Named number formats: `integer, number1, number2, currency, percent, growth, multiple, k, m, bn, date, year, text`;
+  KPI tiles scale automatically (≥ 1e5 → k, ≥ 1e6 → m, ≥ 1e9 → bn).
+
+### 16.2 `style_sheet`
+Finds the table (used range or `range`), styles the header (wrapped, numeric headers right-aligned), applies the
+brand body font, infers a format per column from header words + values (`margin`/`rate`/`share` with fractions →
+percent; `growth`/`change` → signed percent; `year` → `0`; ids/codes untouched; whole/large → integer; small decimals →
+number1/2), detects a `Total…` last row, autofits, freezes below the header (not `gov`), hides gridlines for report
+presets and adds an autofilter for `data`. The reply lists every inference so a model fixes one column in one call.
+
+### 16.3 `build_report`
+- KPI grammar: `Label=agg:Column|format` (agg `sum|avg|count|min|max`), `Label=ratio:A/B`, `Label==<formula>`,
+  `Label=count`, or just `Column` (sum). Tiles are live formulas over absolute data ranges; the reply quotes each value.
+- Chart grammar: `intent:Category:Value[:agg][:Title]`, intents `auto|compare|rank|trend|share|relationship`, Value may
+  be `count`. Choice table: time categories → line (column ≤ 3 points); rank or long labels (> 12 chars) or > 8
+  categories → sorted horizontal bar; few short categories → sorted column; share with 2–5 non-negative parts →
+  doughnut, else bar; relationship → scatter. Rankings keep 11 bars + "Other" (sum/count).
+- Titles state the message: "Revenue rose 58% from Jan to Dec", "North leads Revenue with 35% of the total".
+- Layout grid: margin column A (2), six 22-wide tile columns with 2-wide gutters; rows: title 32 pt, subtitle,
+  KPI label/value/note; 2-column chart grid from row 8 (13.6 × 7.6 cm, 16 rows per band); footer with the source range.
+  Gridlines off, zoom 100, landscape fit to one page, brand tab colour. Rebuilding replaces the sheets.
+
+### 16.4 Chart styling (every chart)
+Axes `delete=False` (Excel 365 hides them otherwise); no rounded corners, no chart border, `chart.style` unset; axis
+text 9 pt muted, axis lines in the rule colour; gridlines only on line/area/scatter; legend only with > 1 series (top);
+bars: gap 60 (single) / 80 + overlap −10 (clustered), data labels when ≤ 12 points, `highlight` greys every other bar;
+horizontal bars list the first category on top; lines 2.25 pt without markers; doughnut 55% hole with category +
+percent labels and no legend. Not possible in openpyxl 3.1: sparklines, native waterfall/histogram/treemap (chartex),
+chart alt text.
+
+## 17. Completeness plan (Phase 7, approved 2026-10-21)
+
+### 17.1 Rules for adding capability at the caps
+All tiers are full (8/18/30). A new capability must, in this order of preference: (a) extend an existing tool with a
+flat parameter or enum; (b) replace several overlapping tools with one op-based tool; (c) take a slot freed by (b).
+A cap is never raised to fit a feature. Merges join operations that share parameters and the same read/write
+annotation (`validate_formula` ≈ `evaluate`; `split` is an output mode of `convert`). Merge-cells lives in
+`format_range`, not in a tool named "merge", because `merge` already means joining tables.
+
+### 17.2 Target tool surface after Phase 7 (still 8 / 18 / 30)
+
+| Tier | Tools (cumulative) | Count |
+|---|---|---|
+| lite | overview (+folder listing), read, find, query, profile, write, explain_formula, build_report | 8 |
+| standard adds | clean, anomalies (+`scope=formulas`), merge (+`mode=reconcile`), convert (+split), diff, undo, evaluate (+`check_only`), describe_cell (+`trace`), style_sheet, **what_if** | 18 |
+| full adds | create_workbook, sheet_ops, **range_ops** (replaces rows_ops), name_ops, format_range (+`merge`), set_table, **rules** (replaces add_validation + conditional_format), add_chart (+sparkline), pivot (+`native`), recalc, **sheet_layout**, **annotate** | 30 |
+
+Removed names: `validate_formula`, `split`, `add_validation`, `conditional_format`, `rows_ops` (the CLI answers
+them with the replacement command).
+
+### 17.3 Non-goals (documented so competitor features do not read as omissions)
+Running VBA (decision 2026-10-21: needs Windows + installed Excel, is arbitrary code execution, Excel's automation
+default enables all macros on open and a MsgBox can hang the call; the refusal error points to the read path and to
+running the macro in Excel by hand); writing VBA until the Phase 8 decision gate; attaching to a live Excel instance/COM; Power Query, DAX and the Data Model; slicers and
+timelines; web/market-data connectors and PDF-to-model extraction; a built-in LLM for row-by-row `=AI()` fill (the
+host model does this through reads and column writes); the deprecated MCP Sampling, Roots and protocol Logging.
+**Local-only scope (decision 2026-10-21):** slim-sheet is a local MCP server that each person attaches to their own
+agent (stdio via uvx/uv), so remote-server features are out of scope: OAuth/SSO and per-user permissions, cloud
+file stores (SharePoint/OneDrive/Drive/S3), container images and the conformance suite. The streamable-http mode
+stays for one person's own tools (bearer token, rate limit, Origin check).
+
+### 17.4 Open questions for the owner
+1. Keep the five removed names for one minor release (temporarily over a cap) or remove them before 1.0?
+2. Should `pivot` default to native PivotTables once verified, or stay static by default?
+3. Promote fill/sort to the lite tier (46.6% of SheetCopilot tasks) at the cost of dropping a lite tool?
+4. ~~Is multi-user HTTP a real target?~~ Answered 2026-10-21: no — local stdio only (§17.3).
+5. `what_if` engine: the `formulas` library (fast, partial coverage) or LibreOffice recalculation (exact, slow)?
+6. ~~Is an opt-in network extra (SharePoint/OneDrive/Drive/S3) acceptable?~~ Answered 2026-10-21: no (§17.3).
+
+Phase 8 open questions (2026-10-21):
+7. ~~`read sheet='#vba'` pseudo-sheet or `overview detail=macros`?~~ Answered 2026-10-21: `#vba` (no new tool, reuses `read` paging); revisit after 7B eval runs.
+8. ~~Make `olefile` a core dependency?~~ Answered 2026-10-21: yes (BSD, pure Python, needed for `.xls`/`.xlsm` macros).
+9. Opt-in VBA writing at all? (Deferred; nothing offline proves the code compiles.)
+10. Keep slicers a non-goal? Both main competitors build them; no user demand found.
+11. Is 3,000,000 cells the right `SLIM_SHEET_MAX_CELLS` default? (Shipped as the default; `0` disables it.)
+
+Evidence notes: demand for notes, images, protection, print setup, sparklines and goal seek is weak (competitor
+parity only); enterprise checklist items come from vendor sources; SpreadsheetBench shares are a keyword estimate;
+whether MCP SDK 2.x serves legacy and 2026-07-28 clients without extra setup is unverified (first P0 test).

@@ -28,8 +28,8 @@ SERVER_SCHEMA = "https://static.modelcontextprotocol.io/schemas/2025-12-11/serve
 ENV_VARS = [
     (
         "SLIM_SHEET_TIER",
-        "Tool tier: lite (7 tools, small models), standard (16) or full (28)",
-        "standard",
+        "Tool tier: full (28 tools, default), standard (16) or lite (7, for small local models)",
+        "full",
         False,
     ),
     (
@@ -126,8 +126,8 @@ def mcpb_manifest(project: dict[str, Any]) -> dict[str, Any]:
             "tier": {
                 "type": "string",
                 "title": "Tool tier",
-                "description": "lite (7 tools), standard (16) or full (28)",
-                "default": "standard",
+                "description": "full (28 tools, default), standard (16) or lite (7, small models)",
+                "default": "full",
                 "required": False,
             },
         },

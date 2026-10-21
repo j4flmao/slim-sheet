@@ -6,11 +6,18 @@ slim-sheet runs locally. Every host below starts the same command, `uvx slim-she
 Always set `SLIM_SHEET_ROOTS` to the folder that holds your spreadsheets. slim-sheet refuses paths outside it.
 On Windows use `D:/data` or `D:\\data` in JSON, and separate several folders with `;`. On macOS/Linux use `:`.
 
+Optional: set `SLIM_SHEET_BRAND` (`slim`, `office`, `modern`, `mono`, `gov`, or a path to your company's brand
+`.json`) and every dashboard, table and chart the agent builds uses your colours, fonts and number conventions —
+see [prompts/design.md](prompts/design.md#3-company-brand-set-once-used-by-every-agent).
+
 ## Pick a tier for your model
+
+The default is `full`: every tool (charts, formatting, row inserts, pivots, formulas...) is available
+without any setting. Choose a smaller tier only for small local models that get confused by many tools.
 
 | Model | Tier | Why |
 |---|---|---|
-| 3B–8B local (Qwen 2.5 7B, Llama 3.1 8B, Gemma 3 4B…) | `lite` | 7 tools, about 900 schema tokens, small models stay accurate |
+| 3B–8B local (Qwen 2.5 7B, Llama 3.1 8B, Gemma 3 4B…) | `lite` | 8 tools, about 1,000 schema tokens (3.5k chars), small models stay accurate; `build_report` makes a whole dashboard in one call |
 | 12B–32B local, Claude Haiku, GPT mini-class | `standard` | adds cleaning, merge/diff, formula checks |
 | Claude Sonnet/Opus, GPT-class frontier models | `full` | adds structure edits, styling, charts, pivots |
 
@@ -26,7 +33,7 @@ Option 2: Settings → Developer → Edit Config, then add to `claude_desktop_co
     "slim-sheet": {
       "command": "uvx",
       "args": ["slim-sheet", "mcp"],
-      "env": { "SLIM_SHEET_TIER": "standard", "SLIM_SHEET_ROOTS": "C:/Users/me/Documents/data" }
+      "env": { "SLIM_SHEET_TIER": "full", "SLIM_SHEET_ROOTS": "C:/Users/me/Documents/data" }
     }
   }
 }
@@ -52,7 +59,7 @@ claude mcp add slim-sheet -e SLIM_SHEET_TIER=full -e SLIM_SHEET_ROOTS=/path/to/d
     "slim-sheet": {
       "type": "local",
       "command": ["uvx", "slim-sheet", "mcp"],
-      "environment": { "SLIM_SHEET_TIER": "standard", "SLIM_SHEET_ROOTS": "/path/to/data" },
+      "environment": { "SLIM_SHEET_TIER": "full", "SLIM_SHEET_ROOTS": "/path/to/data" },
       "enabled": true
     }
   }
@@ -67,7 +74,7 @@ claude mcp add slim-sheet -e SLIM_SHEET_TIER=full -e SLIM_SHEET_ROOTS=/path/to/d
 [mcp_servers.slim-sheet]
 command = "uvx"
 args = ["slim-sheet", "mcp"]
-env = { SLIM_SHEET_TIER = "standard", SLIM_SHEET_ROOTS = "/path/to/data" }
+env = { SLIM_SHEET_TIER = "full", SLIM_SHEET_ROOTS = "/path/to/data" }
 ```
 
 ## VS Code (Copilot agent mode), Cline, Continue

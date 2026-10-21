@@ -9,6 +9,7 @@ from pathlib import Path
 
 from slim_sheet.adapters import crypto
 from slim_sheet.adapters.formats import sniff
+from slim_sheet.adapters.limits import check_cells
 from slim_sheet.adapters.readers import SheetReader, open_reader
 from slim_sheet.adapters.sandbox import resolve_path
 from slim_sheet.config import Settings
@@ -33,6 +34,7 @@ def open_file(raw_path: str, settings: Settings) -> Iterator[OpenFile]:
         if crypto.is_encrypted(path):
             readable = stack.enter_context(crypto.decrypted(path, settings.password))
         fmt = sniff(readable)
+        check_cells(readable, settings.max_cells)
         reader = stack.enter_context(open_reader(readable, fmt))
         yield OpenFile(path=readable, display=path.name, format=fmt, reader=reader)
 

@@ -79,6 +79,8 @@ class WorkbookInfo:
     format: FileFormat
     size_bytes: int
     sheets: tuple[SheetInfo, ...]
+    warnings: tuple[str, ...] = ()  # macros, external links, data connections
+    hidden: tuple[str, ...] = ()  # very hidden sheets, hidden rows/names, notes, authors
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,3 +259,63 @@ class PivotResult:
     sql: str
     preview: QueryResult
     output: OutputResult | None
+
+
+@dataclass(frozen=True, slots=True)
+class TraceResult:
+    """describe_cell trace=...: (level, address, formula or note) rows, breadth first."""
+
+    direction: str
+    address: str
+    depth: int
+    rows: tuple[tuple[int, str, str], ...]
+    truncated: bool
+
+
+@dataclass(frozen=True, slots=True)
+class WhatIfResult:
+    """what_if: a titled table of plain values plus closing notes."""
+
+    op: str
+    title: str
+    columns: tuple[str, ...]
+    rows: tuple[tuple[CellValue, ...], ...]
+    notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class FolderListing:
+    folder: str
+    items: tuple[tuple[str, int], ...]  # (relative path, size in bytes)
+    total: int
+
+
+@dataclass(frozen=True, slots=True)
+class MacroModuleInfo:
+    name: str
+    kind: str  # standard | class | document
+    lines: int  # code lines, without Attribute lines
+    auto_exec: tuple[str, ...]  # procedures Excel runs by itself
+
+
+@dataclass(frozen=True, slots=True)
+class MacroListing:
+    path: str
+    project: str
+    modules: tuple[MacroModuleInfo, ...]
+    signed: bool
+    locked: bool
+    macro_sheets: int
+    stomped: tuple[str, ...]
+    internet: bool  # Windows Mark of the Web: Excel blocks these macros
+
+
+@dataclass(frozen=True, slots=True)
+class MacroSource:
+    path: str
+    module: str
+    kind: str
+    first_line: int  # 1-based number of lines[0]
+    lines: tuple[str, ...]
+    total_lines: int
+    next_cursor: str | None

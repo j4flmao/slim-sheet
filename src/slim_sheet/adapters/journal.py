@@ -87,12 +87,21 @@ def undo(target: Path) -> UndoOutcome:
         )
     last = pending[-1]
     kept = folder / f"{len(entries) + 1:05d}-undone-{target.name}"
-    if target.exists():
-        shutil.copy2(target, kept)
-    if last["backup"] is None:
-        target.unlink(missing_ok=True)
-    else:
-        _atomic_copy(folder / last["backup"], target)
+    try:
+        if target.exists():
+            shutil.copy2(target, kept)
+        if last["backup"] is None:
+            target.unlink(missing_ok=True)
+        else:
+            _atomic_copy(folder / last["backup"], target)
+    except PermissionError as exc:
+        # Nothing was restored, so leave no trace: the same undo must work once it is closed.
+        kept.unlink(missing_ok=True)
+        raise SlimError(
+            ErrorCode.FILE_LOCKED,
+            f"'{target.name}' is locked by another program; nothing was undone",
+            hint=f"Close it in Excel, then retry undo(path='{target.name}').",
+        ) from exc
     _append(folder, {"op": "undo", "undoes": last["seq"], "target": target.name, "kept": kept.name})
     return UndoOutcome(target.name, str(last["note"]), last["backup"], kept.name)
 

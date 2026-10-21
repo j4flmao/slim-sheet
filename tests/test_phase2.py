@@ -7,6 +7,7 @@ from pathlib import Path
 import openpyxl
 import pytest
 
+from slim_sheet.adapters import journal as journal_adapter
 from slim_sheet.adapters.engine.cache import TABLE_CACHE, TableCache, file_key
 from slim_sheet.config import Settings
 from slim_sheet.core.anomalies import find_anomalies
@@ -384,6 +385,36 @@ def test_undo_steps_back_through_writes(sales_xlsx: Path, settings: Settings) ->
     assert "Nothing to undo" in info.value.message
     journal = sales_xlsx.parent / ".slim-sheet" / "journal"
     assert len(list(journal.glob("*undone*"))) == 2
+
+
+def test_undo_of_locked_file_reports_file_locked_and_leaves_no_trace(
+    sales_xlsx: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: Excel on Windows holds the file, so replacing it raises PermissionError
+    copy = sales_xlsx.with_name("sales.slim.xlsx")
+    write(WriteRequest("sales.xlsx", "Orders", "G1", [["one"]]), settings)
+    write(WriteRequest("sales.xlsx", "Orders", "G1", [["two"]]), settings)
+    journal_dir = sales_xlsx.parent / ".slim-sheet" / "journal"
+    index_before = (journal_dir / "journal.jsonl").read_text(encoding="utf-8")
+
+    def locked(source: Path, target: Path) -> None:
+        raise PermissionError(13, "The process cannot access the file", str(target))
+
+    monkeypatch.setattr(journal_adapter, "_atomic_copy", locked)
+
+    # Act
+    with pytest.raises(SlimError) as info:
+        undo("sales.slim.xlsx", settings)
+
+    # Assert
+    assert info.value.code == ErrorCode.FILE_LOCKED
+    assert "nothing was undone" in info.value.message
+    assert "undo(path='sales.slim.xlsx')" in info.value.hint
+    assert list(journal_dir.glob("*undone*")) == []
+    assert (journal_dir / "journal.jsonl").read_text(encoding="utf-8") == index_before
+    monkeypatch.undo()
+    undo("sales.slim.xlsx", settings)
+    assert openpyxl.load_workbook(copy)["Orders"]["G1"].value == "one"
 
 
 def test_undo_restores_overwritten_original(sales_xlsx: Path, settings: Settings) -> None:

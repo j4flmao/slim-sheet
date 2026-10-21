@@ -36,6 +36,7 @@ NUMBER_FORMATS = {
     "text": "@",
 }
 ALIGNMENTS = ("left", "center", "right")
+VERTICAL_ALIGNMENTS = ("top", "middle", "bottom")
 BORDERS = ("none", "thin", "medium", "thick", "outline")
 _HEX = re.compile(r"^#?([0-9A-Fa-f]{6})$")
 

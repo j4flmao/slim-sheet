@@ -144,8 +144,27 @@ def _serve(args: argparse.Namespace, settings: Settings) -> None:
     build_server(settings).run(transport="stdio")
 
 
+# Tools merged in Phase 7 (PLAN §17.2): old commands explain where they went.
+RENAMED = {
+    "validate_formula": "evaluate --check-only",
+    "split": "convert --split-by <column>",
+    "add_validation": "rules (kind=list|whole|decimal|date|text_length|custom)",
+    "conditional_format": "rules (kind=greater_than|between|duplicates|color_scale|...)",
+    "rows_ops": "range_ops (op=insert|delete, range='5:7' or 'C:E')",
+}
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in RENAMED:
+        error = SlimError(
+            ErrorCode.BAD_ARGUMENT,
+            f"'{argv[0]}' was merged into another tool",
+            hint=f"Use: slim-sheet {RENAMED[argv[0]]}",
+        )
+        print(error.to_json())
+        return 2
     args = _parser().parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     try:

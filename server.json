@@ -27,9 +27,9 @@
       "environmentVariables": [
         {
           "name": "SLIM_SHEET_TIER",
-          "description": "Tool tier: lite (7 tools, small models), standard (16) or full (28)",
+          "description": "Tool tier: full (28 tools, default), standard (16) or lite (7, for small local models)",
           "isRequired": false,
-          "default": "standard"
+          "default": "full"
         },
         {
           "name": "SLIM_SHEET_ROOTS",

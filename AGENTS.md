@@ -10,7 +10,8 @@ it holds the architecture, tool surface, tiers and roadmap. If you change a deci
 
 ## Toolchain (uv only)
 - Python is managed by **uv** (already installed). Never call `pip`, `python -m venv`, or a global `python`.
-- Setup: `uv sync --all-extras`
+- Setup: `uv sync --all-extras && uv run pre-commit install` (hooks: ruff, mypy, manifests, Conventional Commit messages, pytest on push)
+- Demo data: `uv run python scripts/make_demo.py` writes sample workbooks to `~/Documents/slim-sheet-demo`
 - Run server: `uv run slim-sheet mcp` · CLI: `uv run slim-sheet overview <file>`
 - Add a dependency: `uv add <pkg>` (dev: `uv add --dev <pkg>`; optional: `uv add --optional <extra> <pkg>`). Never hand-edit versions in `uv.lock`.
 

@@ -9,8 +9,10 @@ import openpyxl
 from openpyxl.workbook.defined_name import DefinedName
 
 from slim_sheet.adapters import journal
+from slim_sheet.adapters.brand import resolve_brand
 from slim_sheet.adapters.sandbox import resolve_output
 from slim_sheet.adapters.writers.chart_refs import charts_reading
+from slim_sheet.adapters.writers.theme import apply_brand
 from slim_sheet.adapters.writers.workbook_refs import (
     count_references,
     rename_references,
@@ -51,8 +53,13 @@ def _check_sheet_name(wb: Any, name: str | None) -> str:
 
 
 def create_workbook(
-    path: str, settings: Settings, sheets: list[str] | None = None, overwrite: bool = False
+    path: str,
+    settings: Settings,
+    sheets: list[str] | None = None,
+    overwrite: bool = False,
+    brand: str | None = None,
 ) -> OutputResult:
+    look, _explicit = resolve_brand(brand, settings)
     target = resolve_output(path, settings)
     if target.suffix.lower() != ".xlsx":
         raise SlimError(
@@ -69,9 +76,10 @@ def create_workbook(
     names = sheets or ["Sheet1"]
     for name in names:
         wb.create_sheet(_check_sheet_name(wb, name))
+    apply_brand(wb, look, force=True)
     backup = journal.record(target, f"create_workbook {', '.join(names)}")
     save_atomic(wb, target)
-    summary = f"new workbook with sheet(s) {', '.join(wb.sheetnames)}"
+    summary = f"new workbook with sheet(s) {', '.join(wb.sheetnames)} (brand {look.name})"
     return OutputResult(target.name, target.name, summary, backup.name if backup else None)
 
 

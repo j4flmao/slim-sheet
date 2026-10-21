@@ -46,11 +46,11 @@
   "tools": [
     {
       "name": "overview",
-      "description": "Map a spreadsheet file: sheets, used ranges, header row, column names and types. Call this first. Example: overview(path='sales.xlsx')"
+      "description": "Map a spreadsheet file (or list the spreadsheets in a folder): sheets, used ranges, header row, columns and types. Call this first."
     },
     {
       "name": "read",
-      "description": "Read cells as a table with A1 coordinates. Optional sheet, range like 'A1:F50', cursor from a previous read, format markdown|tsv|json."
+      "description": "Read cells as a table with A1 coordinates (sheet, range 'A1:F50', cursor). sheet='#vba' lists macros; range='Module1' shows its code."
     },
     {
       "name": "find",
@@ -73,20 +73,24 @@
       "description": "Explain and check an Excel formula: steps, references, syntax/arity errors. Pass formula='=...' or path plus cell like 'Sheet1!C7'."
     },
     {
+      "name": "build_report",
+      "description": "Build a branded dashboard sheet from a data sheet in one call. Example: kpis=['Revenue=sum:Total','Orders=count'], charts=['trend:Month:Total']"
+    },
+    {
       "name": "clean",
       "description": "Clean a table: ops from trim, collapse_spaces, remove_nonprintable, unify_null, numbers_from_text, normalize_dates, drop_empty_rows, drop_empty_cols, dedupe. Previews unless apply=true."
     },
     {
       "name": "anomalies",
-      "description": "Find suspicious cells: duplicate keys, wrong types, outliers, spelling variants, bad dates, stray spaces. Returns Sheet!A1 addresses."
+      "description": "Find suspicious cells (duplicates, types, outliers, typos); scope='formulas' audits models; scope='macros' rates VBA risks (auto-run, Shell, downloads)."
     },
     {
       "name": "merge",
-      "description": "Join two tables on keys (how=left|inner|full|anti) and count unmatched rows on both sides. keys=['ID'] or ['ID=Order No']. out_path saves the result."
+      "description": "Join two tables on keys (how=left|inner|full|anti), or how=reconcile to label rows matched/different/only_left/only_right. keys=['ID'] or ['ID=Order No']."
     },
     {
       "name": "convert",
-      "description": "Convert a file to xlsx, csv, tsv, parquet or json (by out_path extension). Reads xls, xlsb, ods, csv and more."
+      "description": "Convert to xlsx/csv/tsv/parquet/json by out_path extension; CSV: delimiter=';', encoding='cp1252', decimal=','. split_by='Region' splits; a folder exports VBA."
     },
     {
       "name": "diff",
@@ -94,31 +98,35 @@
     },
     {
       "name": "undo",
-      "description": "Undo the last slim-sheet write to a file (write, clean, convert or merge output)."
-    },
-    {
-      "name": "validate_formula",
-      "description": "Check a formula before writing it: syntax, unknown functions, Excel version (target='2016' or 'xls'), missing sheets/names. Gives fixes."
+      "description": "Undo the last slim-sheet write to a file (every editing tool is journaled)."
     },
     {
       "name": "evaluate",
-      "description": "Calculate a formula offline, alone or against a workbook. Example: evaluate(path='x.xlsx', cell='Calc!C7') or evaluate(formula='=ROUND(2.5,0)')"
+      "description": "Calculate a formula offline, or check it with check_only=true (target='2016'). Example: evaluate(path='x.xlsx', cell='Calc!C7')"
     },
     {
       "name": "describe_cell",
-      "description": "Everything about one cell: value, formula, number format, font, fill, comment, validation, merge. Example: describe_cell(path='x.xlsx', cell='Sheet1!B2')"
+      "description": "Everything about one cell: value, formula, format, note, validation; trace='precedents' or 'dependents' follows formulas across sheets."
+    },
+    {
+      "name": "style_sheet",
+      "description": "Make a table look professional in one call: header, number formats (auto), totals, widths, freeze. preset=report|data|finance|striped|minimal."
+    },
+    {
+      "name": "what_if",
+      "description": "Change inputs in memory and see outputs move: op=delta|goal_seek|grid. Example: inputs=['Inputs!B3=8%'], outputs=['Model!B20']. Never writes."
     },
     {
       "name": "create_workbook",
-      "description": "Create a new empty .xlsx with the given sheet names. Example: create_workbook(path='out.xlsx', sheets=['Data','Summary'])"
+      "description": "Create a new empty branded .xlsx with the given sheet names. Example: create_workbook(path='out.xlsx', sheets=['Data','Summary'])"
     },
     {
       "name": "sheet_ops",
       "description": "Add, rename, delete, copy, move, hide or unhide a sheet (op=...). Renames also fix formulas that point to the sheet."
     },
     {
-      "name": "rows_ops",
-      "description": "Insert or delete rows/columns (op=insert_rows|delete_rows|insert_cols|delete_cols, at='5' or 'C', count). Formulas, merges, names are shifted like Excel."
+      "name": "range_ops",
+      "description": "Edit a block: op=fill|copy|move|transpose|sort|replace|insert|delete|clear|split. Example: op='fill', range='D2:D200'. where=\"Status='Closed'\" filters rows."
     },
     {
       "name": "name_ops",
@@ -126,35 +134,35 @@
     },
     {
       "name": "format_range",
-      "description": "Style a range: bold, italic, font_color, fill_color ('yellow' or '#FFEB9C'), number_format ('currency', 'percent', 'date' or custom), align, wrap, border, autofit."
+      "description": "Style a range: role ('title','header','total'...), bold, colors, number_format ('percent','m'...), align, border, merge, autofit."
     },
     {
       "name": "set_table",
-      "description": "Turn a range with a header row into a named Excel table. Example: set_table(path, sheet='Data', range='A1:D50', name='Sales')"
+      "description": "Turn a range with a header row into a named Excel table; same name again resizes it. Example: set_table(path, sheet='Data', range='A1:D50', name='Sales', totals=true)"
     },
     {
-      "name": "add_validation",
-      "description": "Add a dropdown or rule: type=list (values=[...]), whole, decimal, date, text_length (min/max) or custom (formula)."
-    },
-    {
-      "name": "conditional_format",
-      "description": "Highlight cells by rule: greater_than, less_than, between, equal, text_contains, duplicates, top_n, color_scale, data_bar, formula."
+      "name": "rules",
+      "description": "Add a dropdown/input rule (kind=list|whole|decimal|date|text_length|custom) or highlight rule (greater_than|between|duplicates|top_n|color_scale|data_bar|formula...)."
     },
     {
       "name": "add_chart",
-      "description": "Insert a chart (column, bar, line, pie, area, scatter) from data_range: header row + category column + series columns."
+      "description": "Insert a clean branded chart (type=auto picks one) from data_range: header row + category column + series columns. Optional highlight='North'; replace=true swaps the chart at anchor."
     },
     {
       "name": "pivot",
-      "description": "Summarise a table: rows=['Region'], values=['Total'], agg=sum|count|avg|min|max, optional columns='Month'. Save with out_path or to_sheet."
-    },
-    {
-      "name": "split",
-      "description": "Split a table by a column's values into sheets of one workbook (mode=sheets) or separate files (mode=files)."
+      "description": "Summarise a table: rows=['Region'], values=['Total'], agg=sum|count|avg|min|max, columns='Month'. to_sheet saves it; native=true makes a real Excel PivotTable."
     },
     {
       "name": "recalc",
       "description": "Recalculate every formula with LibreOffice so cached values are fresh (needs LibreOffice installed)."
+    },
+    {
+      "name": "sheet_layout",
+      "description": "Set how a sheet looks and prints: freeze, widths=['A=14'], heights, filter_range, hide, gridlines, zoom, print_area, landscape, fit_width, protect; workbook: calc_mode, protect_structure."
+    },
+    {
+      "name": "annotate",
+      "description": "Add a note, hyperlink or image to a cell, or remove objects: op=note|link|image|remove. Example: op='link', cell='B2', url='https://...'"
     }
   ],
   "user_config": {
@@ -167,8 +175,8 @@
     "tier": {
       "type": "string",
       "title": "Tool tier",
-      "description": "lite (7 tools), standard (16) or full (28)",
-      "default": "standard",
+      "description": "full (28 tools, default), standard (16) or lite (7, small models)",
+      "default": "full",
       "required": false
     }
   },

@@ -2,7 +2,8 @@
 
 Mirrors the shapes used in tests/conftest.py (Orders, messy multi-region Report,
 Calc with formulas, a CSV) plus a few extras the tasks need: duplicate invoice
-numbers, a sheet name with a space, a broken formula. Nothing random, so the
+numbers, a sheet name with a space, a broken formula, and a macro workbook whose
+VBA (never run) the macro tasks redo with tools. Nothing random, so the
 expected answers in tasks.json stay valid.
 
 Usage: uv run python -m evals.build_fixtures <out_dir>
@@ -22,7 +23,7 @@ import openpyxl
 log = logging.getLogger("evals.fixtures")
 
 ORDER_ROWS = 300
-FIXTURE_FILES = ("sales.xlsx", "messy.xlsx", "people.csv")
+FIXTURE_FILES = ("sales.xlsx", "messy.xlsx", "people.csv", "macros.xlsm")
 DUPLICATE_INVOICES = {7: "INV-1003", 19: "INV-1011", 31: "INV-1011"}
 
 
@@ -92,6 +93,46 @@ def build_people(path: Path) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+MACRO_ROWS: list[list[object]] = [
+    ["Region", "Amount"],
+    ["North", 120],
+    ["Test", 1],
+    ["South", 300],
+    ["East", 80],
+    ["Test", 2],
+    ["West", 150],
+]
+AUTO_OPEN = ["Private Sub Workbook_Open()", '  Shell "notepad.exe"', "End Sub"]
+MODULE1 = [
+    "Sub SortByAmount()",
+    '  Worksheets("Data").Range("A1:B7").Sort Key1:=Range("B2"), Order1:=xlDescending, '
+    "Header:=xlYes",
+    "End Sub",
+    "",
+    "Sub DropTests()",
+    "  Dim r As Long",
+    "  For r = 7 To 2 Step -1",
+    '    If Worksheets("Data").Cells(r, 1).Value = "Test" Then Worksheets("Data").Rows(r).Delete',
+    "  Next r",
+    "End Sub",
+    "",
+    "Sub Tidy()",
+    '  Worksheets("Data").Range("D1").Value = "Done"',
+    "End Sub",
+]
+MACRO_MODULES = {
+    "ThisWorkbook": ("document", "\n".join(AUTO_OPEN) + "\n"),
+    "Module1": ("standard", "\n".join(MODULE1) + "\n"),
+}
+
+
+def build_macros(path: Path) -> None:
+    """A source-only VBA project built in-house (tests/vba_fixtures.py); nothing ever runs it."""
+    from tests.vba_fixtures import macro_workbook
+
+    macro_workbook(path, MACRO_MODULES, rows=MACRO_ROWS)
+
+
 def build_all(out_dir: Path) -> list[Path]:
     """(Re)create every fixture in out_dir and remove leftovers from earlier writes."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -100,6 +141,7 @@ def build_all(out_dir: Path) -> list[Path]:
     build_sales(out_dir / "sales.xlsx")
     build_messy(out_dir / "messy.xlsx")
     build_people(out_dir / "people.csv")
+    build_macros(out_dir / "macros.xlsm")
     paths = [out_dir / name for name in FIXTURE_FILES]
     log.info("Built %d fixtures in %s", len(paths), out_dir)
     return paths

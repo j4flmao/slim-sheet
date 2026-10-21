@@ -6,6 +6,7 @@ import contextlib
 import os
 import re
 import tempfile
+import warnings
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -52,11 +53,29 @@ def lost_features(path: Path, wb: Any) -> list[str]:
     return lost
 
 
+def package_warnings(path: Path) -> list[str]:
+    """External links and data connections; slim-sheet never follows or refreshes them."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+    except (zipfile.BadZipFile, OSError):
+        return []  # not a zip package (csv, xls, ...)
+    found: list[str] = []  # macros are reported by services/macros.py from the content types
+    links = sum(1 for n in names if n.startswith("xl/externalLinks/externalLink"))
+    if links:
+        found.append(f"links to {links} other workbook(s); values may be stale")
+    if "xl/connections.xml" in names or any(n.startswith("xl/queryTables/") for n in names):
+        found.append("has data connections or queries (not refreshed by slim-sheet)")
+    return found
+
+
 def load_for_edit(base: Path) -> openpyxl.Workbook:
     """Full (non read-only) load that keeps VBA for macro-enabled files."""
     keep_vba = base.suffix.lower() in {".xlsm", ".xltm"}
     try:
-        return openpyxl.load_workbook(base, keep_vba=keep_vba)
+        with warnings.catch_warnings():  # sparklines are kept by writers/sparklines.py
+            warnings.filterwarnings("ignore", message="Sparkline Group extension")
+            return openpyxl.load_workbook(base, keep_vba=keep_vba)
     except PermissionError as exc:
         raise _locked(base) from exc
 

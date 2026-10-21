@@ -15,6 +15,7 @@ import openpyxl
 
 from slim_sheet.core.a1 import format_range
 from slim_sheet.core.errors import ErrorCode, SlimError
+from slim_sheet.core.file_formula import from_file
 from slim_sheet.core.models import CellRange
 
 
@@ -52,7 +53,7 @@ class XlsxMeta:
     def formula_at(self, sheet: str, row: int, col: int) -> str | None:
         value = self.wb[sheet].cell(row=row + 1, column=col + 1).value
         text = getattr(value, "text", value)  # ArrayFormula keeps its text in .text
-        return text if isinstance(text, str) and text.startswith("=") else None
+        return from_file(text) if isinstance(text, str) and text.startswith("=") else None
 
     def defined_names(self) -> list[str]:
         names = list(self.wb.defined_names.keys())
