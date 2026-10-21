@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup help for your agent (Claude, Codex, OpenCode, LM Studio, Ollama...)
+    url: https://github.com/j4flmao/slim-sheet/blob/main/docs/hosts.md
+    about: Configuration for every supported host.
+  - name: Report a security vulnerability
+    url: https://github.com/j4flmao/slim-sheet/security/advisories/new
+    about: Please report vulnerabilities privately, not as public issues.

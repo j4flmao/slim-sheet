@@ -1,5 +1,6 @@
-# Release on a version tag (v0.1.0): build, publish to PyPI with trusted publishing,
-# then publish server.json to the MCP Registry with GitHub OIDC. No stored secrets.
+# Release on a version tag (v0.1.0): build, publish to PyPI with trusted publishing (PEP 740
+# attestations), attest the build provenance and publish an SPDX SBOM, then publish server.json
+# to the MCP Registry with GitHub OIDC. No stored secrets.
 name: release
 
 on:
@@ -12,6 +13,8 @@ jobs:
     environment: pypi
     permissions:
       id-token: write
+      attestations: write
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -19,7 +22,23 @@ jobs:
         run: test "v$(uv version --short)" = "${GITHUB_REF_NAME}"
       - run: uv run python scripts/build_manifests.py --check
       - run: uv build
+      - name: Build provenance for the wheel and sdist
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+      - name: SBOM (SPDX) of the locked dependencies
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: slim-sheet.spdx.json
+      - name: Attach SBOM and dists to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/* slim-sheet.spdx.json --generate-notes
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
 
   mcp-registry:
     needs: pypi

@@ -1,0 +1,37 @@
+# Labels applied to pull requests by .github/workflows/labeler.yml (actions/labeler v5 syntax).
+"area: core":
+  - changed-files:
+      - any-glob-to-any-file: "src/slim_sheet/core/**"
+"area: adapters":
+  - changed-files:
+      - any-glob-to-any-file: "src/slim_sheet/adapters/**"
+"area: services":
+  - changed-files:
+      - any-glob-to-any-file: "src/slim_sheet/services/**"
+"area: interfaces":
+  - changed-files:
+      - any-glob-to-any-file: ["src/slim_sheet/interfaces/**", "src/slim_sheet/serve.py", "src/slim_sheet/__main__.py"]
+"area: formula":
+  - changed-files:
+      - any-glob-to-any-file: ["src/slim_sheet/core/formula.py", "src/slim_sheet/core/validate.py", "src/slim_sheet/core/functions.py", "src/slim_sheet/data/**", "src/slim_sheet/services/evaluate.py"]
+"tools":
+  - changed-files:
+      - any-glob-to-any-file: "src/slim_sheet/interfaces/toolspec.py"
+tests:
+  - changed-files:
+      - any-glob-to-any-file: "tests/**"
+evals:
+  - changed-files:
+      - any-glob-to-any-file: "evals/**"
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.md", "docs/**"]
+ci:
+  - changed-files:
+      - any-glob-to-any-file: [".github/**", ".pre-commit-config.yaml"]
+packaging:
+  - changed-files:
+      - any-glob-to-any-file: ["pyproject.toml", "server.json", "manifest.json", ".mcpbignore", "scripts/build_manifests.py"]
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file: "uv.lock"
