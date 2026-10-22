@@ -36,8 +36,8 @@ TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         "overview",
         "lite",
-        "Map a spreadsheet file (or list the spreadsheets in a folder): sheets, used ranges, "
-        "header row, columns and types. Call this first.",
+        "Map a spreadsheet file (or list the spreadsheets in a folder; no path lists all allowed "
+        "folders): sheets, used ranges, header row, columns and types. Call this first.",
         title="Workbook overview",
     ),
     ToolSpec(

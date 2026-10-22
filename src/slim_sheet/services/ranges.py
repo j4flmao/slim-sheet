@@ -673,6 +673,7 @@ def _split(wb: Any, ws: Any, req: RangeRequest, _pre: Prepared) -> Change:
     if rng.n_cols != 1:
         raise SlimError(ErrorCode.BAD_RANGE, "split takes one column", hint="e.g. range='A2:A200'")
     widest = 0
+    replaced: list[str] = []
     for r in range(rng.top, rng.bottom + 1):
         cell = ws.cell(row=r + 1, column=rng.left + 1)
         if not isinstance(cell.value, str) or req.delimiter not in cell.value:
@@ -680,12 +681,27 @@ def _split(wb: Any, ws: Any, req: RangeRequest, _pre: Prepared) -> Change:
         parts = [part.strip() for part in cell.value.split(req.delimiter)]
         widest = max(widest, len(parts))
         for offset, part in enumerate(parts):
-            ws.cell(row=r + 1, column=rng.left + 1 + offset).value = _typed(part)
+            target = ws.cell(row=r + 1, column=rng.left + 1 + offset)
+            if offset and target.value not in (None, ""):
+                replaced.append(target.coordinate)
+            target.value = _typed(part)
     if not widest:
         return Change(
             f"nothing to split: no cell in {ws.title}!{a1(rng)} contains '{req.delimiter}'"
         )
-    return Change(f"split {ws.title}!{a1(rng)} on '{req.delimiter}' into up to {widest} column(s)")
+    summary = f"split {ws.title}!{a1(rng)} on '{req.delimiter}' into up to {widest} column(s)"
+    return Change(summary, warnings=_replaced_warning(replaced))
+
+
+def _replaced_warning(replaced: list[str]) -> tuple[str, ...]:
+    """Excel's Text to Columns asks before it overwrites; the tool reports what it replaced."""
+    if not replaced:
+        return ()
+    shown = ", ".join(replaced[:5]) + (", ..." if len(replaced) > 5 else "")
+    return (
+        f"split overwrote {len(replaced)} non-empty cell(s) to the right ({shown}); "
+        "undo, insert empty columns with range_ops(op='insert', range='C:D'), and split again",
+    )
 
 
 def _typed(text: str) -> Any:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from slim_sheet.core.budget import UNTRUSTED, cell_text
 from slim_sheet.core.models import (
     CellDescription,
@@ -18,6 +20,36 @@ from slim_sheet.core.validate import ValidationReport
 VALUE_CHARS = 80
 MAX_SPILL_ROWS = 20
 MAX_SPILL_COLS = 10
+MAX_LISTED_CELLS = 10  # recomputed-cell ranges shown in an evaluate reply
+_CELL = re.compile(r"\$?([A-Z]{1,3})\$?([0-9]+)")
+
+
+def compact_cells(cells: tuple[str, ...], limit: int = MAX_LISTED_CELLS) -> str:
+    """'Data!Z2', 'Data!Z3', ... -> 'Data!Z2:Z131': runs of one column become ranges, and the
+    list is capped so a formula over a whole column does not flood the reply."""
+    runs: list[list[str | int]] = []  # [sheet, column, first row, last row]
+    for ref in cells:
+        sheet, _, cell = ref.rpartition("!")
+        match = _CELL.fullmatch(cell)
+        if match is None:
+            runs.append([ref, "", 0, 0])
+            continue
+        col, row = match.group(1), int(match.group(2))
+        last = runs[-1] if runs else None
+        if last is not None and last[0] == sheet and last[1] == col and last[3] == row - 1:
+            last[3] = row
+        else:
+            runs.append([sheet, col, row, row])
+    shown = [_run(sheet, col, first, last) for sheet, col, first, last in runs]
+    extra = len(shown) - limit
+    return ", ".join(shown[:limit]) + (f" and {extra} more" if extra > 0 else "")
+
+
+def _run(sheet: str | int, col: str | int, first: str | int, last: str | int) -> str:
+    if not col:
+        return str(sheet)
+    prefix = f"{sheet}!" if sheet else ""
+    return f"{prefix}{col}{first}" + (f":{col}{last}" if last != first else "")
 
 
 def _v(value: CellValue) -> str:
@@ -49,7 +81,7 @@ def render_eval(result: EvalResult) -> str:
     if result.inputs:
         lines.append("inputs: " + "; ".join(f"{ref} {shown}" for ref, shown in result.inputs))
     if result.recomputed:
-        lines.append("recomputed (no cached value): " + ", ".join(result.recomputed))
+        lines.append("recomputed (no cached value): " + compact_cells(result.recomputed))
     lines += [f"note: {n}" for n in result.notes]
     return "\n".join(lines)
 

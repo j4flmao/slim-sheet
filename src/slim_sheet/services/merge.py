@@ -14,6 +14,7 @@ import duckdb
 
 from slim_sheet.adapters.engine.cache import LoadedTable
 from slim_sheet.adapters.engine.duck import Engine, engine_from, load_tables
+from slim_sheet.adapters.sandbox import resolve_path
 from slim_sheet.adapters.writers.export import export_table
 from slim_sheet.config import Settings
 from slim_sheet.core.budget import clamp_budget
@@ -85,7 +86,8 @@ def merge(
         raise SlimError(
             ErrorCode.BAD_ARGUMENT, "keys is empty", hint="e.g. keys=['OrderID'] or ['ID=Order No']"
         )
-    target = output_path(out_path, settings, overwrite) if out_path else None
+    base = resolve_path(path, settings).parent
+    target = output_path(out_path, settings, overwrite, base) if out_path else None
     with _pair_engine(settings, (path, sheet), (other_path, other_sheet)) as (engine, left, right):
         a, b = engine.table("a"), engine.table("b")
         pairs = [_key_pair(k, a, b) for k in keys]

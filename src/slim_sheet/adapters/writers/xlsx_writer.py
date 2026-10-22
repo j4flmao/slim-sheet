@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import openpyxl
+from openpyxl.worksheet.views import Selection
 
 from slim_sheet.core.errors import ErrorCode, SlimError
 
@@ -80,7 +81,43 @@ def load_for_edit(base: Path) -> openpyxl.Workbook:
         raise _locked(base) from exc
 
 
+def freeze_panes(ws: Any, cell: str | None) -> None:
+    """Freeze at `cell` (None unfreezes). openpyxl keeps the old pane selections when a sheet
+    that was frozen on both axes is frozen again, leaving two <selection pane="bottomLeft">
+    entries; Excel then refuses to open the file. Start from a clean view instead."""
+    view = ws.sheet_view
+    view.pane = None
+    view.selection = [Selection()]
+    ws.freeze_panes = cell
+
+
+def _dedupe_selections(wb: openpyxl.Workbook) -> None:
+    """Keep one selection per pane, and only for panes the split has (a frozen-rows-only sheet
+    has no bottomRight pane). Excel refuses either fault; this repairs older files on save."""
+    for ws in wb.worksheets:
+        views = getattr(ws, "views", None)  # chartsheets have none
+        for view in views.sheetView if views is not None else []:
+            allowed = _panes(view.pane)
+            seen: set[str | None] = set()
+            kept = []
+            for selection in view.selection:
+                if selection.pane not in seen and selection.pane in allowed:
+                    seen.add(selection.pane)
+                    kept.append(selection)
+            view.selection = kept or [Selection()]
+
+
+def _panes(pane: Any) -> set[str | None]:
+    if pane is None:
+        return {None, "topLeft"}
+    rows, cols = bool(pane.ySplit), bool(pane.xSplit)
+    if rows and cols:
+        return {None, "topLeft", "topRight", "bottomLeft", "bottomRight"}
+    return {None, "topLeft", "bottomLeft" if rows else "topRight"}
+
+
 def save_atomic(wb: openpyxl.Workbook, target: Path) -> None:
+    _dedupe_selections(wb)
     fd, tmp_name = tempfile.mkstemp(prefix=".slim-", suffix=target.suffix, dir=target.parent)
     os.close(fd)
     tmp = Path(tmp_name)

@@ -61,7 +61,7 @@ def resolve_target(source: Path, settings: Settings, out_path: str | None, overw
     if overwrite and not out_path:
         return source
     if out_path:
-        target = resolve_output(out_path, settings)
+        target = resolve_output(out_path, settings, base=source.parent)
         if target.suffix.lower() != source.suffix.lower():
             raise SlimError(
                 ErrorCode.BAD_ARGUMENT, f"out_path must keep the '{source.suffix}' extension"

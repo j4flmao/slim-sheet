@@ -9,11 +9,28 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from slim_sheet.adapters.sandbox import resolve_path
 from slim_sheet.config import Settings
-from slim_sheet.core.design import DEFAULT_BRAND, Brand, brand_from_mapping, builtin_brand
+from slim_sheet.core.design import (
+    BRANDS,
+    DEFAULT_BRAND,
+    Brand,
+    brand_from_mapping,
+    builtin_brand,
+)
 from slim_sheet.core.errors import ErrorCode, SlimError
+
+
+def brand_for(wb: Any, look: Brand, explicit: bool) -> Brand:
+    """The brand for an edit: the call's or the environment's when given, otherwise the brand the
+    workbook was built with (its '<brand> title' named style), so later calls keep its look."""
+    if explicit:
+        return look
+    names = {str(getattr(s, "name", s)) for s in getattr(wb, "named_styles", [])}
+    found = next((b for b in BRANDS if f"{b} title" in names), None)
+    return builtin_brand(found) if found and found != look.name else look
 
 
 def resolve_brand(requested: str | None, settings: Settings) -> tuple[Brand, bool]:

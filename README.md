@@ -90,7 +90,8 @@ Rules behind the defaults (IBCS, finance colour coding, UK spreadsheet accessibi
   a macro's job with tools (prompt `replace_macro`). slim-sheet never runs macros.
 - **Excel-exact formulas**: newer functions are stored with Excel's `_xlfn.` prefixes and spilling formulas as real
   dynamic arrays, with a warning when something blocks the spill.
-- **Safe by default**: path allow-list, read-only SQL with file access locked, no model-written code is executed, no network.
+- **Flexible paths, safe by default**: give any folder in chat (no config change); system folders,
+  AppData, dot-folders such as `.ssh` and non-spreadsheet files are refused. Read-only SQL with file access locked, no model-written code is executed, no network.
 
 ## Configuration
 
@@ -98,7 +99,8 @@ Rules behind the defaults (IBCS, finance colour coding, UK spreadsheet accessibi
 |---|---|---|
 | `SLIM_SHEET_TIER` | `full` | `full`, `standard` or `lite` |
 | `SLIM_SHEET_TOOLS` | — | explicit comma-separated tool list |
-| `SLIM_SHEET_ROOTS` | current directory | allowed folders (`;` on Windows, `:` elsewhere) |
+| `SLIM_SHEET_ROOTS` | current directory | default folders for relative paths and `overview()` (`;` on Windows, `:` elsewhere) |
+| `SLIM_SHEET_STRICT_ROOTS` | off | `1` = only paths inside `SLIM_SHEET_ROOTS` (the old allow-list) |
 | `SLIM_SHEET_MAX_TOKENS` | `1500` | default response budget |
 | `SLIM_SHEET_TOKEN` | — | bearer token for `--transport streamable-http` (required off loopback) |
 | `SLIM_SHEET_PASSWORD` | — | password for encrypted workbooks (never passed through chat) |
@@ -112,9 +114,13 @@ Extras: `formula` (offline `evaluate` and `what_if`), `crypto` (encrypted xlsx),
 
 ## Prompt library
 
-Ready-made, data-agnostic prompts for professional analysis — a shared CORE method, nine analyst ROLES
-(sales, finance, marketing, customer, operations, HR, reconciliation, data quality, general) and five
-OUTPUT patterns (dashboard, report workbook, clean dataset, reconciliation report, quick answer):
+Ready-made, data-agnostic prompts — a shared CORE method, thirteen ROLES (nine analyst roles: sales,
+finance, marketing, customer, operations, HR, reconciliation, data quality, general; plus model
+auditor, workbook editor, macro migrator and file reviewer) and eight OUTPUT patterns (dashboard,
+dashboard pack, report workbook, clean dataset, reconciliation report, quick answer, audit report,
+edited workbook),
+with filled-in example sets, about 50 one-paste task recipes in 8 packs (finance, sales, HR, operations,
+data prep, Excel tasks, reporting, Vietnam) and compact blocks for small local models:
 [docs/prompts](https://github.com/j4flmao/slim-sheet/blob/main/docs/prompts/README.md).
 
 ## Non-MCP hosts

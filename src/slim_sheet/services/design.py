@@ -12,8 +12,9 @@ from typing import Any
 
 from openpyxl.styles import PatternFill
 
-from slim_sheet.adapters.brand import resolve_brand
+from slim_sheet.adapters.brand import brand_for, resolve_brand
 from slim_sheet.adapters.writers.theme import apply_brand, body_font, style_cell
+from slim_sheet.adapters.writers.xlsx_writer import freeze_panes
 from slim_sheet.config import Settings
 from slim_sheet.core.a1 import format_range as a1_range
 from slim_sheet.core.a1 import index_to_col, parse_range
@@ -99,9 +100,10 @@ def style_sheet(
             f"Unknown number_format '{number_format}'",
             hint=f"Use auto, none or one of: {', '.join(FORMAT_NAMES)}",
         )
-    look, explicit = resolve_brand(brand, settings)
+    chosen, explicit = resolve_brand(brand, settings)
 
     def mutate(wb: Any) -> Change:
+        look = brand_for(wb, chosen, explicit)
         ws = get_sheet(wb, sheet)
         block = find_table(ws, range, total_row)
         notes = style_block(ws, block, kind, look, fmt_mode)
@@ -178,7 +180,7 @@ def _sheet_view(ws: Any, block: TableBlock, brand: Brand, preset: str) -> None:
     if preset in ("report", "finance", "striped"):
         view.showGridLines = False
     if brand.profile != "gov" and preset != "minimal":
-        ws.freeze_panes = f"A{block.rng.top + 2}"  # rows only; never freeze columns left of it
+        freeze_panes(ws, f"A{block.rng.top + 2}")  # rows only; never freeze columns left of it
     if preset == "data" and not ws.tables:
         last = block.total_row - 1 if block.total_row is not None else block.rng.bottom
         ws.auto_filter.ref = a1_range(

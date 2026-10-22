@@ -15,7 +15,7 @@ from typing import Any
 from openpyxl.styles import PatternFill
 from openpyxl.worksheet.properties import PageSetupProperties
 
-from slim_sheet.adapters.brand import resolve_brand
+from slim_sheet.adapters.brand import brand_for, resolve_brand
 from slim_sheet.adapters.writers.chart_refs import build_chart
 from slim_sheet.adapters.writers.chart_style import style_chart
 from slim_sheet.adapters.writers.theme import apply_brand, style_cell
@@ -92,9 +92,10 @@ def build_report(
     kpi_specs = [parse_kpi(k) for k in kpis or []]
     chart_specs = [parse_chart(c) for c in charts or []]
     _check_counts(kpi_specs, chart_specs, sheet, data_sheet)
-    look, explicit = resolve_brand(brand, settings)
+    chosen, explicit = resolve_brand(brand, settings)
 
     def mutate(wb: Any) -> Change:
+        look = brand_for(wb, chosen, explicit)
         data = _source(wb, data_sheet)
         style_block(data.ws, data.block, "data", look, "auto")
         board = _fresh_sheet(wb, sheet, 0)

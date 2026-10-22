@@ -137,6 +137,19 @@ def _guard(fn: Callable[..., str], name: str, settings: Settings) -> Callable[..
     return wrapper
 
 
+def _forbid_unknown_arguments(server: MCPServer, name: str) -> None:
+    """Reject misspelled or invented parameters instead of dropping them silently (a model that
+    passes copy_from=... would otherwise believe it worked). The schema gets
+    additionalProperties=false, which strict function-calling hosts also expect."""
+    tool = server._tool_manager.get_tool(name)
+    if tool is None:
+        return
+    model = tool.fn_metadata.arg_model
+    model.model_config["extra"] = "forbid"
+    model.model_rebuild(force=True)
+    tool.parameters = model.model_json_schema(by_alias=True)
+
+
 def build_server(settings: Settings) -> MCPServer:
     specs = enabled_tools(settings)
     server: MCPServer = MCPServer(
@@ -161,6 +174,7 @@ def build_server(settings: Settings) -> MCPServer:
             ),
             structured_output=False,
         )
+        _forbid_unknown_arguments(server, spec.name)
         if spec.name in structured.STRUCTURED_TOOLS:
             tool = server._tool_manager.get_tool(spec.name)
             if tool is not None:  # published (not validated): the text block stays primary

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from slim_sheet.adapters.brand import resolve_brand
+from slim_sheet.adapters.brand import brand_for, resolve_brand
 from slim_sheet.adapters.writers.chart_refs import anchor_cell, build_chart
 from slim_sheet.adapters.writers.chart_style import style_chart
 from slim_sheet.adapters.writers.sparklines import line_group
@@ -60,9 +60,10 @@ def add_chart(
         )
     if anchor is not None:
         parse_range(anchor)
-    look, _explicit = resolve_brand(brand, settings)
+    chosen_look, explicit = resolve_brand(brand, settings)
 
     def mutate(wb: Any) -> Change:
+        look = brand_for(wb, chosen_look, explicit)
         host = get_sheet(wb, sheet)
         source = get_sheet(wb, data_sheet) if data_sheet else host
         categories = _column(source, rng, rng.left)
@@ -141,9 +142,10 @@ def _sparklines(
     start = (
         parse_range(anchor) if anchor else CellRange(rng.top, rng.right + 1, rng.top, rng.right + 1)
     )
-    look, _explicit = resolve_brand(brand, settings)
+    chosen_look, explicit = resolve_brand(brand, settings)
 
     def mutate(wb: Any) -> Change:
+        look = brand_for(wb, chosen_look, explicit)
         host = get_sheet(wb, sheet)
         source = get_sheet(wb, data_sheet) if data_sheet else host
         prefix = quote_sheet(source.title)

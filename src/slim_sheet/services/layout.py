@@ -16,6 +16,7 @@ from openpyxl.workbook.properties import CalcProperties
 from openpyxl.workbook.protection import WorkbookProtection
 from openpyxl.worksheet.properties import PageSetupProperties
 
+from slim_sheet.adapters.writers.xlsx_writer import freeze_panes
 from slim_sheet.config import Settings
 from slim_sheet.core.a1 import format_range as a1
 from slim_sheet.core.a1 import index_to_col, parse_range
@@ -98,11 +99,11 @@ def _view(ws: Any, req: LayoutRequest) -> list[str]:
     if req.freeze is not None:
         text = req.freeze.strip().upper()
         if text in ("", "NONE", "A1"):
-            ws.freeze_panes = None
+            freeze_panes(ws, None)
             done.append("panes unfrozen")
         else:
             cell = parse_range(text)
-            ws.freeze_panes = f"{index_to_col(cell.left)}{cell.top + 1}"
+            freeze_panes(ws, f"{index_to_col(cell.left)}{cell.top + 1}")
             done.append(f"frozen at {ws.freeze_panes}")
     if req.filter_range is not None:
         text = req.filter_range.strip()

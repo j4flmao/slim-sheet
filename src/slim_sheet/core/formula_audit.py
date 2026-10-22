@@ -96,6 +96,9 @@ def audit(formulas: Formulas, values: Values) -> list[AuditFinding]:
     return sorted(found, key=lambda f: (rank.get(f.kind, 99), f.sheet, f.row, f.col))
 
 
+_TOTAL_LABEL = re.compile(
+    r"\b(?:totals?|sub-?totals?|grand|overall|all|sum|combined)\b", re.IGNORECASE
+)
 KINDS = (
     "error_root",
     "broken_reference",
@@ -141,19 +144,44 @@ def _runs(cells: Mapping[tuple[int, int], str], vertical: bool) -> Iterator[list
             yield [(p, line) if vertical else (line, p) for p in run]
 
 
+def _summary_rows(
+    cells: Mapping[tuple[int, int], str], values: Mapping[tuple[int, int], object]
+) -> set[int]:
+    """Rows labelled like a total ('Total', 'All 130 listings', 'Vietnam total') and the formula
+    rows right under them: a summary block whose formulas differ from the body by design."""
+    first_col: dict[int, int] = {}
+    for row, col in cells:
+        first_col[row] = min(col, first_col.get(row, col))
+    totals = set()
+    for row, col in first_col.items():
+        labels = [values.get((row, c)) for c in range(col)]
+        text = [v for v in labels if isinstance(v, str) and v.strip()]
+        if text and _TOTAL_LABEL.search(text[-1]):
+            totals.add(row)
+    block = set(totals)
+    for row in sorted(totals):
+        below = row + 1
+        while below in first_col and below not in block:
+            block.add(below)
+            below += 1
+    return block
+
+
 def _pattern_breaks(
     sheet: str, cells: Mapping[tuple[int, int], str], values: Mapping[tuple[int, int], object]
 ) -> list[AuditFinding]:
     found: dict[tuple[int, int], AuditFinding] = {}
+    summary = _summary_rows(cells, values)
+    body = {cell: f for cell, f in cells.items() if cell[0] not in summary}
     for vertical in (True, False):
-        for run in _runs(cells, vertical):
+        for run in _runs(body, vertical):
             if len(run) < MIN_RUN:
                 continue
-            forms = {cell: relative_form(cells[cell], *cell) for cell in run}
+            forms = {cell: relative_form(body[cell], *cell) for cell in run}
             common, count = Counter(forms.values()).most_common(1)[0]
             if count < max(2, (len(run) + 1) // 2) or count == len(run):
                 continue
-            example = next(cells[c] for c in run if forms[c] == common)
+            example = next(body[c] for c in run if forms[c] == common)
             for cell in run:
                 if forms[cell] != common and cell not in found:
                     found[cell] = AuditFinding(

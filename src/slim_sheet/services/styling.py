@@ -13,14 +13,14 @@ from openpyxl.formatting.rule import (
     FormulaRule,
     Rule,
 )
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Protection, Side
 from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.filters import AutoFilter
 from openpyxl.worksheet.table import Table, TableColumn, TableStyleInfo
 
-from slim_sheet.adapters.brand import resolve_brand
+from slim_sheet.adapters.brand import brand_for, resolve_brand
 from slim_sheet.adapters.writers.theme import style_cell
 from slim_sheet.config import Settings
 from slim_sheet.core.a1 import format_range as a1_range
@@ -104,22 +104,27 @@ def format_range(
     merge: bool | None = None,
 ) -> OutputResult:
     rng = _area(range)
-    look = resolve_brand(None, settings)[0] if role or number_format else None
-    role_look = role_style(role, look) if role and look else None
+    base, explicit = resolve_brand(None, settings)
+    if number_format:
+        _named_format(number_format, base)  # fail fast on an unknown format name
     font_rgb = color(font_color) if font_color else None
     fill_rgb = color(fill_color) if fill_color else None
-    fmt = _named_format(number_format, look) if number_format else None
     horizontal = _horizontal(align) if align else None
     vertical = _vertical(valign) if valign else None
     edge = choice(border, BORDERS, "border") if border else None
 
     def mutate(wb: Any) -> Change:
         ws = get_sheet(wb, sheet)
+        look = brand_for(wb, base, explicit)
+        role_look = role_style(role, look) if role else None
+        fmt = _named_format(number_format, look) if number_format else None
         applied: list[str] = []
         for row in _cells(ws, rng):
             for cell in row:
-                if role_look and look:  # the role first, explicit arguments refine it
+                if role_look:  # the role first, explicit arguments refine it
                     style_cell(cell, role_look, look)
+                if role == "input":  # inputs stay editable when the sheet is protected
+                    cell.protection = Protection(locked=False)
                 _font(cell, bold, italic, font_rgb, font_size)
                 if fill_rgb:
                     cell.fill = PatternFill("solid", fgColor=fill_rgb)
@@ -298,6 +303,9 @@ def _format_chars(number_format: str | None) -> int:
     return NUMBER_CHARS
 
 
+KEY_WORDS = frozenset({"id", "no", "nr", "code", "key", "year", "zip", "phone", "sku", "ref"})
+
+
 # --- set_table ----------------------------------------------------------------------------
 
 
@@ -336,14 +344,26 @@ def set_table(
         table.autoFilter = AutoFilter(ref=a1_range(rng))
         summed = _add_totals(ws, table, rng, labels) if totals else []
         ws.add_table(table)
+        dropped = _drop_sheet_filter(ws, ref)
         verb = "resized table" if old is not None else "table"
         extra = f"; totals row sums {', '.join(summed)}" if summed else ""
         extra = extra or ("; totals row added" if totals else "")
+        extra += "; the sheet autofilter it covered now belongs to the table" if dropped else ""
         return Change(
             f"{verb} {name} on {ws.title}!{a1_range(ref)} ({rng.n_rows - 1} data rows){extra}"
         )
 
     return edit_workbook(path, settings, f"set_table {name}", mutate, out_path, overwrite)
+
+
+def _drop_sheet_filter(ws: Any, table_ref: CellRange) -> bool:
+    """A sheet autofilter overlapping a table makes Excel refuse the file; Excel itself moves
+    the filter into the table when one is created, so the sheet-level filter is removed."""
+    current = ws.auto_filter.ref
+    if not current or parse_range(str(current)).intersect(table_ref) is None:
+        return False
+    ws.auto_filter.ref = None
+    return True
 
 
 def _header_labels(ws: Any, rng: CellRange) -> list[str]:
@@ -381,7 +401,7 @@ def _add_totals(ws: Any, table: Any, rng: CellRange, labels: list[str]) -> list[
     summed: list[str] = []
     for offset, (column, label) in enumerate(zip(table.tableColumns, labels, strict=True)):
         cell = ws.cell(row=row + 1, column=rng.left + offset + 1)
-        if _numeric_column(ws, rng, rng.left + offset):
+        if _numeric_column(ws, rng, rng.left + offset) and not _key_like(label):
             column.totalsRowFunction = "sum"
             cell.value = f"=SUBTOTAL(109,{table.displayName}[{_escape_column(label)}])"
             summed.append(label)
@@ -390,6 +410,12 @@ def _add_totals(ws: Any, table: Any, rng: CellRange, labels: list[str]) -> list[
             cell.value = "Total"
     table.totalsRowCount = 1
     return summed
+
+
+def _key_like(label: str) -> bool:
+    """'OrderID', 'Invoice No', 'zip_code', 'Year': numeric, but adding them up means nothing."""
+    words = re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+", label)
+    return any(word.lower() in KEY_WORDS for word in words)
 
 
 def _numeric_column(ws: Any, rng: CellRange, col: int) -> bool:

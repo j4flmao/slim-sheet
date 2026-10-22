@@ -106,7 +106,7 @@ class Handlers:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
-    def overview(self, path: str) -> str:
+    def overview(self, path: str = "") -> str:
         folder = list_workbooks(path, self.settings)
         if folder is not None:
             publish(folder)

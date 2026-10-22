@@ -58,6 +58,22 @@ All notable changes to this project are documented here. The format follows
   sheets, hidden rows/columns/names, `;;;` formats, notes, embedded objects, author fields).
 - `write` warns when a spilling formula has non-empty cells in its way, or a value lands in another formula's spill.
 - MCP prompt `replace_macro`; 6 macro-phrased eval tasks on a new `macros.xlsm` fixture.
+- Prompt library: roles `model-auditor`, `workbook-editor`, `macro-migrator`, `file-reviewer`; outputs
+  `audit-report`, `edited-workbook`; `examples.md` with five filled-in sets and one-liners; compact edit and
+  macro blocks for small models; the CORE tool map covers the Phase 7–8 tools.
+- Prompt recipes: `docs/prompts/recipes/` with about 50 one-paste prompts in 8 packs (finance, sales and
+  marketing, HR, operations, data preparation, Excel tasks, reporting, Vietnam).
+- `format_range role="input"` leaves cells unlocked, so inputs stay editable when the sheet is protected.
+- Prompt library: `outputs/dashboard-pack.md` (overview, growth and segment dashboards plus a chart
+  gallery, every chart title checked by a query) and design.md §6–7 (chart chosen from the question, data
+  shapes for trends, segments and concentration curves, ready prompts incl. small models).
+- `range_ops op=split` warns when it overwrites non-empty cells; `set_table totals=true` no longer sums
+  ID-like columns (OrderID, Invoice No, Year, ...).
+
+- Flexible paths without config: absolute paths work in any local folder, relative paths are looked up in
+  every `SLIM_SHEET_ROOTS` folder, relative outputs land next to their source, `overview()` with no path
+  lists the roots. System/AppData folders, dot-folders, network shares and non-data files stay refused;
+  `SLIM_SHEET_STRICT_ROOTS=1` keeps the old roots-only behaviour.
 
 ### Fixed
 - Formulas using functions newer than Excel 2007 were saved without the `_xlfn.` prefix: `=FILTER(...)` made the
@@ -67,6 +83,28 @@ All notable changes to this project are documented here. The format follows
   dynamic-array metadata Excel files carry is kept through every edit (openpyxl dropped it, turning spills into
   legacy CSE arrays).
 - `recalc` on `.xlsm` restores the original VBA project byte-for-byte if LibreOffice changed it.
+- `set_table` over a range with a sheet autofilter produced a file Excel refused to open; the overlapping
+  filter now moves into the table, as Excel does.
+- `style_sheet`, `format_range`, `build_report` and `add_chart` ignored the brand a workbook was created
+  with once no `brand=` was given on a later call; they now detect the workbook's brand from its named
+  styles and keep it, instead of silently reverting to `slim`.
+- Unknown or misspelled tool parameters (e.g. a typoed `copy_from=`) were silently dropped instead of
+  erroring; every tool's schema now sets `additionalProperties: false` and rejects them by name.
+- Numbers computed from sums/divisions (e.g. a pivot preview) could show binary noise like
+  `611.2259999999999`; cell text now renders floats to 15 significant digits, the same precision Excel
+  itself displays.
+- `sheet_ops rename` can change only the letter case of a sheet name (`data` -> `Data`), as Excel can.
+- `evaluate` replies list recomputed cells as ranges (`Data!Z2:Z131`, at most 10) and print plain numbers
+  instead of `np.float64(...)`.
+- `style_sheet` formats formula columns from their headers (formulas have no values until Excel
+  calculates), and one outlier no longer turns a margin or growth column into plain numbers.
+- `anomalies scope=formulas` no longer reports labelled total rows (Total, All..., and the rows under
+  them) as inconsistent formulas.
+- Freezing panes again on a sheet already frozen on both axes (e.g. `build_report` on a data sheet that
+  `sheet_layout` had frozen at `E2`) left duplicate and impossible pane selections, and Excel refused the
+  file. Freezing now starts from a clean view, and every save removes such selections, repairing older files.
+- Offline evaluation: `INDEX(...)=""` on a blank cell is TRUE and a formula ending on a blank shows 0,
+  matching Excel 365.
 - Charts written by openpyxl had hidden axes in Excel 365 (`<c:delete>` missing), rounded corners, a border and
   gridlines; every chart is now styled cleanly.
 - Autofit sized numbers from their raw digits instead of their formatted display (`0.2723` vs `27.2%`).

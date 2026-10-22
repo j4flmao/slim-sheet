@@ -350,7 +350,7 @@ Wide sheets: if a single row exceeds 25% of budget, auto-switch to **column wind
 
 | Threat | Control |
 |---|---|
-| Agent reads `~/.ssh` etc. | `SLIM_SHEET_ROOTS` allow-list (default: CWD). Paths resolved with `Path.resolve(strict)`; symlink escapes denied |
+| Agent reads `~/.ssh` etc. | Paths resolved with `Path.resolve`; outside `SLIM_SHEET_ROOTS` only data-file suffixes, and OS/program/AppData folders, dot-folders and network shares are refused (§17.5); `SLIM_SHEET_STRICT_ROOTS=1` = roots only |
 | Destructive write | default `out_path = <stem>.slim<suffix>`; `overwrite=true` required for in-place; atomic replace; journal in `.slim-sheet/journal/` for `undo` |
 | SQL that writes / reads arbitrary files | DuckDB connection with `enable_external_access=false` after registering allowed files; statement allow-list `SELECT/WITH/DESCRIBE/SUMMARIZE` unless `SLIM_SHEET_SQL_WRITE=1` |
 | Formula injection (CSV `=HYPERLINK(...)`, DDE) | On CSV export, escape leading `= + - @ \t \r` (OWASP); `write` refuses `WEBSERVICE`, `CALL`, DDE, external refs unless `allow_external=true` |
@@ -646,7 +646,8 @@ dependency, swaps sys.stdout, which would corrupt the stdio protocol channel).
 |---|---|---|
 | `SLIM_SHEET_TIER` | `full` | `full` \| `standard` \| `lite`; blank or unresolved `${...}` placeholders fall back to the default |
 | `SLIM_SHEET_TOOLS` | — | Explicit comma list; overrides tier |
-| `SLIM_SHEET_ROOTS` | CWD | `os.pathsep`-separated allowed directories |
+| `SLIM_SHEET_ROOTS` | CWD | `os.pathsep`-separated default folders (relative paths, `overview()` listing) |
+| `SLIM_SHEET_STRICT_ROOTS` | off | `1`: refuse every path outside `SLIM_SHEET_ROOTS` |
 | `SLIM_SHEET_MAX_TOKENS` | `1500` | Default response budget |
 | `SLIM_SHEET_MAX_CELL_CHARS` | `120` | Per-cell truncation |
 | `SLIM_SHEET_MAX_FILE_MB` | `200` | Reject larger files |
@@ -757,6 +758,19 @@ host model does this through reads and column writes); the deprecated MCP Sampli
 agent (stdio via uvx/uv), so remote-server features are out of scope: OAuth/SSO and per-user permissions, cloud
 file stores (SharePoint/OneDrive/Drive/S3), container images and the conformance suite. The streamable-http mode
 stays for one person's own tools (bearer token, rate limit, Origin check).
+
+### 17.5 Path policy: flexible by default (decision 2026-10-21)
+Owner request: data may sit in any folder, outputs may go to any folder or next to the project, with no
+config change per folder. The strict allow-list is replaced by:
+- absolute paths work anywhere on a local disk; relative paths are looked up in `SLIM_SHEET_ROOTS` in
+  order; a relative `out_path` is written next to its source file; `overview()` with no path lists the
+  roots (spreadsheets only, newest first, 40 max);
+- outside the roots: only data files (`.xlsx … .csv/.tsv/.txt/.parquet/.json`), never OS, program or
+  AppData folders, dot-folders (`.ssh`, `.git`, `.aws`; `.slim-sheet` excepted) or network shares —
+  so injected cell text cannot steer the agent to credentials; writes stay non-destructive and journaled;
+- `SLIM_SHEET_STRICT_ROOTS=1` restores roots-only access for shared or locked-down machines.
+This changes org rule "Safe by default: path allow-list": the guard is now a deny-list plus a file-type
+allow-list; the org rule file should be updated by its owner (`D:\j4flmao-org\.claude\rules`).
 
 ### 17.4 Open questions for the owner
 1. Keep the five removed names for one minor release (temporarily over a cap) or remove them before 1.0?

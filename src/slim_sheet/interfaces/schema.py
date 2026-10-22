@@ -73,7 +73,7 @@ def simplify(schema: dict[str, Any]) -> dict[str, Any]:
     """
     out: dict[str, Any] = {}
     for key, value in schema.items():
-        if key == "title":
+        if key in ("title", "additionalProperties"):  # Gemini rejects additionalProperties
             continue
         if key == "properties":
             out[key] = {name: simplify(prop) for name, prop in value.items()}

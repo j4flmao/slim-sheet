@@ -43,7 +43,8 @@ Report the actual output. Do not claim success on a skipped or failing step.
 
 ## Safety rules
 - Never execute model-supplied Python. SQL is read-only unless `SLIM_SHEET_SQL_WRITE=1`.
-- All paths go through `adapters/sandbox.py` (allow-list `SLIM_SHEET_ROOTS`).
+- All paths go through `adapters/sandbox.py`: `SLIM_SHEET_ROOTS` are default folders; outside them only
+  data files in non-system, non-hidden folders are allowed (`SLIM_SHEET_STRICT_ROOTS=1` = roots only).
 - Writes are non-destructive by default (`<stem>.slim<suffix>`), atomic (temp + `os.replace`), and journaled.
 - No network access in any code path unless behind an explicit opt-in env flag.
 

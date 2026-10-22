@@ -31,7 +31,8 @@ def cell_text(value: CellValue, max_chars: int) -> str:
     if isinstance(value, bool):
         text = "TRUE" if value else "FALSE"
     elif isinstance(value, float):
-        text = str(int(value)) if value.is_integer() and abs(value) < 1e15 else repr(value)
+        # 15 significant digits, like Excel: sums print 611.226, not 611.2259999999999
+        text = str(int(value)) if value.is_integer() and abs(value) < 1e15 else f"{value:.15g}"
     elif isinstance(value, dt.datetime):
         text = value.isoformat(sep=" ", timespec="seconds").removesuffix(" 00:00:00")
     elif isinstance(value, dt.date | dt.time):

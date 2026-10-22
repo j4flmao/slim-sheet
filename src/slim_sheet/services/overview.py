@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from slim_sheet.adapters.hidden_info import hidden_content
 from slim_sheet.adapters.sandbox import resolve_folder
 from slim_sheet.adapters.writers.xlsx_writer import package_warnings
@@ -71,19 +74,54 @@ SPREADSHEET_SUFFIXES = (
     ".csv", ".tsv", ".txt", ".parquet", ".json", ".jsonl", ".ndjson",
 )  # fmt: skip
 MAX_LISTED = 200
+MAX_ROOT_LISTED = 40
+# a whole-roots listing shows workbooks and tabular files only (not every .txt/.json on disk)
+ROOT_LISTING_SUFFIXES = (
+    ".xlsx", ".xlsm", ".xltx", ".xltm", ".xlsb", ".xls", ".ods", ".numbers",
+    ".csv", ".tsv", ".parquet",
+)  # fmt: skip
+SKIPPED_DIRS = frozenset(
+    {"node_modules", "site-packages", "venv", "env", "__pycache__", "dist-info"}
+)
 
 
 def list_workbooks(path: str, settings: Settings) -> FolderListing | None:
-    """A folder inside the roots -> its spreadsheets (recursive); a file -> None."""
+    """A folder inside the roots -> its spreadsheets (recursive); a file -> None.
+
+    An empty path lists every allowed root, with full paths the agent can pass back as is.
+    """
+    if not path or not path.strip():
+        return _list_roots(settings)
     folder = resolve_folder(path, settings)
     if folder is None:
         return None
-    found = sorted(
-        p for p in folder.rglob("*")
-        if p.is_file() and p.suffix.lower() in SPREADSHEET_SUFFIXES
-        and ".slim-sheet" not in p.parts and not p.name.startswith(("~$", ".slim-"))
-    )  # fmt: skip
+    found = _spreadsheets(folder)
     items = tuple(
         (item.relative_to(folder).as_posix(), item.stat().st_size) for item in found[:MAX_LISTED]
     )
     return FolderListing(folder.name or str(folder), items, len(found))
+
+
+def _spreadsheets(folder: Path, suffixes: tuple[str, ...] = SPREADSHEET_SUFFIXES) -> list[Path]:
+    """Data files under `folder`, skipping tool and environment folders (.venv, node_modules...)."""
+    found: list[Path] = []
+    for current, dirs, files in os.walk(folder):
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d.lower() not in SKIPPED_DIRS)
+        found += [
+            Path(current) / name
+            for name in sorted(files)
+            if Path(name).suffix.lower() in suffixes and not name.startswith(("~$", ".slim-"))
+        ]
+    return found
+
+
+def _list_roots(settings: Settings) -> FolderListing:
+    """Every allowed root at once: real spreadsheets only, most recently changed first."""
+    found = [
+        item for root in settings.roots if root.is_dir()
+        for item in _spreadsheets(root, ROOT_LISTING_SUFFIXES)
+    ]  # fmt: skip
+    found.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+    items = tuple((str(item), item.stat().st_size) for item in found[:MAX_ROOT_LISTED])
+    folders = "; ".join(map(str, settings.roots))
+    return FolderListing(f"the allowed folders ({folders}), newest first", items, len(found))

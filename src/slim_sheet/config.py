@@ -17,7 +17,8 @@ DEFAULT_TIER = "full"  # every tool unless a host opts into a smaller surface fo
 class Settings:
     tier: str = DEFAULT_TIER
     tools: tuple[str, ...] = ()
-    roots: tuple[Path, ...] = ()
+    roots: tuple[Path, ...] = ()  # default folders (strict_roots: the only folders)
+    strict_roots: bool = False  # True: refuse every path outside roots
     max_tokens: int = 1500
     max_cell_chars: int = 120
     max_file_mb: int = 200
@@ -68,6 +69,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         tier=tier,
         tools=tools,
         roots=roots or (Path.cwd().resolve(),),
+        strict_roots=_clean(env.get("SLIM_SHEET_STRICT_ROOTS")).lower() in ("1", "true", "yes"),
         max_tokens=_int(env, "SLIM_SHEET_MAX_TOKENS", 1500),
         max_cell_chars=_int(env, "SLIM_SHEET_MAX_CELL_CHARS", 120),
         max_file_mb=_int(env, "SLIM_SHEET_MAX_FILE_MB", 200),

@@ -46,7 +46,7 @@
   "tools": [
     {
       "name": "overview",
-      "description": "Map a spreadsheet file (or list the spreadsheets in a folder): sheets, used ranges, header row, columns and types. Call this first."
+      "description": "Map a spreadsheet file (or list the spreadsheets in a folder; no path lists all allowed folders): sheets, used ranges, header row, columns and types. Call this first."
     },
     {
       "name": "read",

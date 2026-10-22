@@ -3,7 +3,10 @@
 slim-sheet runs locally. Every host below starts the same command, `uvx slim-sheet mcp`, which needs
 [uv](https://docs.astral.sh/uv/) installed. Add extras with `uvx --from "slim-sheet[all]" slim-sheet mcp`.
 
-Always set `SLIM_SHEET_ROOTS` to the folder that holds your spreadsheets. slim-sheet refuses paths outside it.
+`SLIM_SHEET_ROOTS` is optional: it names your default data folders (relative paths and `overview()` with
+no path use them). Any other folder works when you give its full path in chat; system folders, AppData,
+hidden folders (`.ssh`, `.git`, ...) and non-spreadsheet files are always refused. Set
+`SLIM_SHEET_STRICT_ROOTS=1` to allow only the roots.
 On Windows use `D:/data` or `D:\\data` in JSON, and separate several folders with `;`. On macOS/Linux use `:`.
 
 Optional: set `SLIM_SHEET_BRAND` (`slim`, `office`, `modern`, `mono`, `gov`, or a path to your company's brand

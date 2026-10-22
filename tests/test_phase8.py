@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import zipfile
 from dataclasses import replace
 from pathlib import Path
@@ -16,6 +17,8 @@ from slim_sheet.config import Settings, load_settings
 from slim_sheet.core.errors import ErrorCode, SlimError
 from slim_sheet.core.file_formula import from_file, is_dynamic, spill_extent, to_file
 from slim_sheet.core.models import CellRange
+from slim_sheet.core.render_formula import compact_cells
+from slim_sheet.core.report_spec import infer_format
 from slim_sheet.core.vba_triage import triage
 from slim_sheet.interfaces.handlers import Handlers
 from slim_sheet.services import macros
@@ -726,3 +729,516 @@ def test_overview_hidden_content_is_quiet_for_plain_files(
 
     # Assert
     assert "hidden content" not in text
+
+
+def test_split_warns_when_it_overwrites_cells(tmp_path: Path, settings: Settings) -> None:
+    # Arrange: column C already holds data that the split of column B runs into
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "S"
+    ws.append(["Name", "Full", "Status"])
+    ws.append(["a", "Ann Lee", "Open"])
+    wb.save(tmp_path / "names.xlsx")
+
+    # Act
+    text = Handlers(settings).range_ops("names.xlsx", "S", "split", range="B2", delimiter=" ")
+
+    # Assert
+    assert "split overwrote 1 non-empty cell(s) to the right (C2)" in text
+    assert "range_ops(op='insert'" in text
+
+
+def test_set_table_totals_skip_id_like_columns(tmp_path: Path, settings: Settings) -> None:
+    # Arrange
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "T"
+    ws.append(["OrderID", "Year", "Invoice No", "Qty"])
+    ws.append([1001, 2026, 7, 2])
+    ws.append([1002, 2026, 8, 3])
+    wb.save(tmp_path / "ids.xlsx")
+
+    # Act
+    text = Handlers(settings).set_table("ids.xlsx", "T", "A1:D3", "Ids", totals=True)
+
+    # Assert
+    out = openpyxl.load_workbook(tmp_path / "ids.slim.xlsx")["T"]
+    assert "totals row sums Qty" in text and "OrderID" not in text.split("sums")[1]
+    assert [out["A4"].value, out["B4"].value, out["C4"].value] == ["Total", None, None]
+    assert out["D4"].value == "=SUBTOTAL(109,Ids[Qty])"
+
+
+# --- path rules: the path in the chat first, then the default folders ------------------------
+
+
+def _two_roots(tmp_path: Path, settings: Settings) -> tuple[Settings, Path, Path]:
+    first, second = tmp_path / "docs", tmp_path / "gather"
+    (second / "excel").mkdir(parents=True)
+    first.mkdir()
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Data"
+    ws.append(["Region", "Amount"])
+    ws.append(["North", 5])
+    wb.save(second / "excel" / "book.xlsx")
+    return replace(settings, roots=(first.resolve(), second.resolve())), first, second
+
+
+def test_relative_path_is_found_in_any_root(tmp_path: Path, settings: Settings) -> None:
+    # Arrange: the file lives only in the second root
+    two, _first, second = _two_roots(tmp_path, settings)
+
+    # Act
+    text = Handlers(two).overview("excel/book.xlsx")
+    absolute = Handlers(two).overview(str(second / "excel" / "book.xlsx"))
+
+    # Assert
+    assert "book.xlsx" in text and "Data" in text and text == absolute
+
+
+def test_relative_out_path_lands_next_to_the_source(tmp_path: Path, settings: Settings) -> None:
+    # Arrange
+    two, first, second = _two_roots(tmp_path, settings)
+    h = Handlers(two)
+
+    # Act
+    h.convert("excel/book.xlsx", out_path="book.csv")
+    h.write("excel/book.xlsx", "Data", "C1", [["note"]], out_path="edited.xlsx")
+
+    # Assert
+    assert (second / "excel" / "book.csv").is_file() and (
+        second / "excel" / "edited.xlsx"
+    ).is_file()
+    assert not list(first.iterdir())
+
+
+def test_overview_without_path_lists_every_root(tmp_path: Path, settings: Settings) -> None:
+    # Arrange
+    two, _first, second = _two_roots(tmp_path, settings)
+
+    # Act
+    text = Handlers(two).overview()
+
+    # Assert
+    assert "1 spreadsheet(s) in the allowed folders" in text
+    assert str(second / "excel" / "book.xlsx") in text
+
+
+def test_missing_relative_path_names_the_folders_searched(
+    tmp_path: Path, settings: Settings
+) -> None:
+    # Arrange
+    two, first, second = _two_roots(tmp_path, settings)
+
+    # Act / Assert
+    with pytest.raises(SlimError, match="No file") as info:
+        Handlers(two).overview("nope.xlsx")
+    assert str(first) in (info.value.hint or "") and str(second) in (info.value.hint or "")
+
+
+# --- open paths: any data folder by absolute path, secrets and system folders refused ------
+
+
+@pytest.fixture
+def open_paths(
+    tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Settings, Path]:
+    """Default folder 'home'; 'elsewhere' is a data folder outside it (pytest's temp folder sits in
+    AppData, which the real rules refuse, so the system-folder list is faked here)."""
+    from slim_sheet.adapters import sandbox
+
+    home, elsewhere = tmp_path / "home", tmp_path / "elsewhere"
+    home.mkdir()
+    elsewhere.mkdir()
+    monkeypatch.setattr(sandbox, "_system_folders", lambda: [tmp_path / "sys"])
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Data"
+    ws.append(["Region", "Amount"])
+    ws.append(["North", 5])
+    wb.save(elsewhere / "book.xlsx")
+    return replace(settings, roots=(home.resolve(),)), elsewhere
+
+
+def test_absolute_paths_work_anywhere_on_disk(open_paths: tuple[Settings, Path]) -> None:
+    # Arrange
+    open_settings, elsewhere = open_paths
+    h = Handlers(open_settings)
+    source = str(elsewhere / "book.xlsx")
+
+    # Act
+    text = h.overview(source)
+    h.convert(source, out_path="book.csv")
+    h.write(source, "Data", "C1", [["note"]])
+
+    # Assert
+    assert "Data" in text
+    assert (elsewhere / "book.csv").is_file() and (elsewhere / "book.slim.xlsx").is_file()
+
+
+@pytest.mark.parametrize(
+    ("relative", "reason"),
+    [
+        (".ssh/id_rsa.csv", "hidden folders"),
+        ("keys/server.pem", "not a spreadsheet or table file"),
+        ("sys/config.xlsx", "system and application-data folders"),
+    ],
+)
+def test_secret_and_system_paths_are_refused(
+    open_paths: tuple[Settings, Path], tmp_path: Path, relative: str, reason: str
+) -> None:
+    # Arrange
+    open_settings, _elsewhere = open_paths
+    target = tmp_path / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("a,b\n1,2\n", encoding="utf-8")
+
+    # Act / Assert
+    with pytest.raises(SlimError, match=reason) as info:
+        Handlers(open_settings).overview(str(target))
+    assert info.value.code == ErrorCode.PATH_DENIED
+
+
+def test_network_shares_are_refused(open_paths: tuple[Settings, Path]) -> None:
+    # Act / Assert
+    with pytest.raises(SlimError, match="network shares"):
+        Handlers(open_paths[0]).overview("//server/share/book.xlsx")
+    with pytest.raises(SlimError, match="network shares"):
+        Handlers(open_paths[0]).overview("\\\\server\\share\\book.xlsx")
+
+
+def test_strict_roots_refuse_everything_outside(open_paths: tuple[Settings, Path]) -> None:
+    # Arrange
+    strict = replace(open_paths[0], strict_roots=True)
+
+    # Act / Assert
+    with pytest.raises(SlimError, match="outside the allowed roots") as info:
+        Handlers(strict).overview(str(open_paths[1] / "book.xlsx"))
+    assert "SLIM_SHEET_STRICT_ROOTS" in (info.value.hint or "")
+    assert load_settings({"SLIM_SHEET_STRICT_ROOTS": "1"}).strict_roots
+    assert not load_settings({}).strict_roots
+
+
+# --- fixes found while building the gather-data report ---------------------------------------
+
+
+def _numbers_book(tmp_path: Path, name: str = "n.xlsx") -> Path:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "data"
+    ws.append(["Region", "Amount", "Margin"])
+    for region, amount, margin in (("North", 10, 0.2), ("South", 20, 0.25), ("East", 5, 1.6)):
+        ws.append([region, amount, margin])
+    path = tmp_path / name
+    wb.save(path)
+    return path
+
+
+def test_set_table_drops_an_overlapping_sheet_filter(tmp_path: Path, settings: Settings) -> None:
+    # Arrange: preset 'data' puts a sheet autofilter on the table range first
+    _numbers_book(tmp_path)
+    h = Handlers(settings)
+    h.style_sheet("n.xlsx", "data", preset="data")
+
+    # Act
+    text = h.set_table("n.slim.xlsx", "data", "A1:C4", "Sales", overwrite=True)
+
+    # Assert: Excel refuses a sheet filter that overlaps a table
+    ws = openpyxl.load_workbook(tmp_path / "n.slim.xlsx")["data"]
+    assert ws.auto_filter.ref is None and ws.tables["Sales"].autoFilter.ref == "A1:C4"
+    assert "sheet autofilter it covered now belongs to the table" in text
+
+
+def test_set_table_keeps_a_filter_elsewhere(tmp_path: Path, settings: Settings) -> None:
+    # Arrange
+    _numbers_book(tmp_path)
+    h = Handlers(settings)
+    h.sheet_layout("n.xlsx", "data", filter_range="E1:F4")
+
+    # Act
+    h.set_table("n.slim.xlsx", "data", "A1:C4", "Sales", overwrite=True)
+
+    # Assert
+    assert openpyxl.load_workbook(tmp_path / "n.slim.xlsx")["data"].auto_filter.ref == "E1:F4"
+
+
+def test_rename_may_change_only_letter_case(tmp_path: Path, settings: Settings) -> None:
+    # Arrange
+    path = _numbers_book(tmp_path)
+    wb = openpyxl.load_workbook(path)
+    wb.create_sheet("Calc")["A1"] = "=SUM(data!B2:B4)"
+    wb.save(path)
+    h = Handlers(settings)
+
+    # Act
+    text = h.sheet_ops("n.xlsx", "rename", "data", new_name="Data")
+
+    # Assert
+    out = openpyxl.load_workbook(tmp_path / "n.slim.xlsx")
+    assert "renamed 'data' to 'Data'" in text and out.sheetnames[0] == "Data"
+    assert out["Calc"]["A1"].value == "=SUM(Data!B2:B4)"
+    with pytest.raises(SlimError, match="already exists"):
+        h.sheet_ops("n.slim.xlsx", "rename", "Calc", new_name="DATA", overwrite=True)
+
+
+def test_compact_cells_collapses_runs_and_caps_the_list() -> None:
+    # Arrange
+    cells = (*(f"Data!Z{r}" for r in range(2, 132)), "Data!AB5", "Sum!B3", "Sum!B4")
+    many = tuple(f"S!A{r}" for r in range(1, 40, 2))
+
+    # Act
+    short = compact_cells(cells)
+    capped = compact_cells(many)
+
+    # Assert
+    assert short == "Data!Z2:Z131, Data!AB5, Sum!B3:B4"
+    assert capped.endswith("and 10 more") and capped.count(",") == 9
+
+
+def test_evaluate_reply_stays_small_and_plain(tmp_path: Path, settings: Settings) -> None:
+    # Arrange: a total over 200 formula cells without cached values
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "S"
+    for r in range(1, 201):
+        ws.cell(row=r, column=1, value=r / 4)
+        ws.cell(row=r, column=2, value=f"=A{r}*2")
+    ws["D1"] = "=SUM(B1:B200)"
+    wb.save(tmp_path / "e.xlsx")
+
+    # Act
+    text = Handlers(settings).evaluate(path="e.xlsx", cell="S!D1")
+
+    # Assert
+    assert "result: 10050" in text and "np.float64" not in text
+    assert "recomputed (no cached value): S!B1:B200" in text and len(text) < 400
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [
+        ("Revenue growth (constant FX)", "growth"),
+        ("Net margin", "percent"),
+        ("Share of profit", "percent"),
+        ("Companies", "integer"),
+        ("Loss-makers", "integer"),
+        ("Revenue (USD bn)", "number1"),
+        ("Ticker", None),
+        ("Sector group", None),
+    ],
+)
+def test_formula_columns_get_formats_from_their_header(header: str, expected: str | None) -> None:
+    # Act
+    key, why = infer_format(header, ["=SUMIFS(A:A,B:B,C1)", "=SUMIFS(A:A,B:B,C2)"])
+
+    # Assert
+    assert key == expected
+    assert "formula column" in why
+
+
+def test_one_outlier_does_not_flip_a_rate_column() -> None:
+    # Act
+    margin, _ = infer_format("Net margin", [0.2, 0.25, 0.31, 1.6])
+    growth, _ = infer_format("Profit growth", [0.1, -0.2, 0.05, -275.3])
+
+    # Assert
+    assert (margin, growth) == ("percent", "growth")
+
+
+def test_style_sheet_formats_formula_tables(tmp_path: Path, settings: Settings) -> None:
+    # Arrange
+    _numbers_book(tmp_path)
+    wb = openpyxl.load_workbook(tmp_path / "n.xlsx")
+    s = wb.create_sheet("Sum")
+    s.append(["Region", "Amount", "Margin"])
+    for r, region in enumerate(("North", "South", "East"), start=2):
+        s.append([region, f"=SUMIFS(data!B:B,data!A:A,A{r})", f"=SUMIFS(data!C:C,data!A:A,A{r})"])
+    wb.save(tmp_path / "n.xlsx")
+
+    # Act
+    text = Handlers(settings).style_sheet("n.xlsx", "Sum")
+
+    # Assert
+    assert "B Amount: number1 (formula column, amount header)" in text
+    assert "C Margin: percent (formula column, rate/share header)" in text
+
+
+def _audit_book(tmp_path: Path, broken: bool) -> Path:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "T"
+    ws.append(["Item", "Qty", "Price", "Value"])
+    for r in range(2, 8):
+        ws.append([f"i{r}", r, 2, f"=B{r}*C{r}"])
+    if broken:
+        ws["D5"] = "=B5*C5+1"
+    ws.append(["Total", "=SUM(B2:B7)", None, "=SUM(D2:D7)"])
+    ws.append(["Average", "=AVERAGE(B2:B7)", None, "=D8/B8"])
+    path = tmp_path / ("broken.xlsx" if broken else "clean.xlsx")
+    wb.save(path)
+    return path
+
+
+def test_formula_audit_skips_labelled_total_rows(tmp_path: Path, settings: Settings) -> None:
+    # Arrange
+    _audit_book(tmp_path, broken=False)
+    _audit_book(tmp_path, broken=True)
+    h = Handlers(settings)
+
+    # Act
+    clean = h.anomalies("clean.xlsx", scope="formulas")
+    broken = h.anomalies("broken.xlsx", scope="formulas")
+
+    # Assert: the total block (Total + the row below it) is not an inconsistency...
+    assert "inconsistent_formula" not in clean
+    # ...but a real break in the body still is
+    assert "T!D5 [inconsistent_formula]" in broken and "T!D8" not in broken
+
+
+@pytest.mark.parametrize(
+    ("formula", "expected"),
+    [
+        ('=INDEX(B1:B2,2)=""', "TRUE"),
+        ('=IF(INDEX(B1:B2,2)="","n/a",1)', "n/a"),
+        ("=INDEX(B1:B2,2)=0", "TRUE"),
+        ("=INDEX(B1:B2,2)", "0"),
+        ("=B2", "0"),
+        ("=INDEX(B1:B2,1)", "5"),
+        ("=SUM(INDEX(B1:B2,2),1)", "1"),
+    ],
+)
+def test_blank_cells_compare_like_excel(
+    tmp_path: Path, settings: Settings, formula: str, expected: str
+) -> None:
+    # Arrange: values checked against Excel 365 (B2 is blank)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "S"
+    ws["B1"] = 5
+    ws["D1"] = formula
+    wb.save(tmp_path / "blank.xlsx")
+
+    # Act
+    text = Handlers(settings).evaluate(path="blank.xlsx", cell="S!D1")
+
+    # Assert
+    assert f"result: {expected}" in text.splitlines()[1]
+
+
+def _views_xml(path: Path, sheet_index: int) -> str:
+    with zipfile.ZipFile(path) as archive:
+        xml = archive.read(f"xl/worksheets/sheet{sheet_index}.xml").decode("utf-8")
+    return xml[xml.index("<sheetViews>") : xml.index("</sheetViews>")]
+
+
+def test_refreezing_leaves_one_valid_selection(tmp_path: Path, settings: Settings) -> None:
+    # Arrange: frozen on both axes first (E2), then a style call freezes rows only (A2)
+    _numbers_book(tmp_path)
+    h = Handlers(settings)
+    h.sheet_layout("n.xlsx", "data", freeze="B2")
+
+    # Act
+    h.style_sheet("n.slim.xlsx", "data", preset="data", overwrite=True)
+
+    # Assert: Excel refuses duplicate panes and panes the split does not have
+    views = _views_xml(tmp_path / "n.slim.xlsx", 1)
+    panes = re.findall(r'<selection [^>]*pane="([^"]*)"', views)
+    assert 'ySplit="1"' in views and "xSplit" not in views
+    assert panes == ["bottomLeft"]
+
+
+def test_save_repairs_selections_written_by_older_versions(
+    tmp_path: Path, settings: Settings
+) -> None:
+    # Arrange: the damaged view the old code produced (rows frozen, extra and duplicate panes)
+    from openpyxl.worksheet.views import Pane, Selection
+
+    path = _numbers_book(tmp_path)
+    wb = openpyxl.load_workbook(path)
+    view = wb["data"].sheet_view
+    view.pane = Pane(ySplit=1, topLeftCell="A2", activePane="bottomLeft", state="frozen")
+    view.selection = [
+        Selection(pane="bottomLeft", activeCell="A1", sqref="A1"),
+        Selection(pane="bottomLeft", activeCell="A1", sqref="A1"),
+        Selection(pane="bottomRight", activeCell="A1", sqref="A1"),
+    ]
+    wb.save(path)
+
+    # Act: any edit saves the file again
+    Handlers(settings).write("n.xlsx", "data", "E1", [["note"]])
+
+    # Assert
+    views = _views_xml(tmp_path / "n.slim.xlsx", 1)
+    assert re.findall(r'<selection [^>]*pane="([^"]*)"', views) == ["bottomLeft"]
+
+
+def test_unknown_tool_arguments_are_rejected(settings: Settings) -> None:
+    # Arrange
+    import asyncio
+
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    from slim_sheet.interfaces.mcp_server import build_server
+
+    server = build_server(settings)
+    root = str(settings.roots[0])
+
+    # Act
+    schema = next(t for t in asyncio.run(server.list_tools()) if t.name == "overview").input_schema
+
+    # Assert: a misspelled parameter is an error, not silently dropped
+    assert schema["additionalProperties"] is False
+    with pytest.raises(ToolError, match="copy_from"):
+        asyncio.run(server.call_tool("overview", {"path": root, "copy_from": "none"}))
+
+
+def test_floats_print_like_excel() -> None:
+    # Act / Assert: 15 significant digits removes binary noise but keeps real precision
+    from slim_sheet.core.budget import cell_text
+
+    assert cell_text(611.2259999999999, 40) == "611.226"
+    assert cell_text(0.1 + 0.2, 40) == "0.3"
+    assert cell_text(123456789.123, 40) == "123456789.123"
+    assert cell_text(-0.0549, 40) == "-0.0549"
+
+
+def test_later_calls_keep_the_workbook_brand(tmp_path: Path, settings: Settings) -> None:
+    # Arrange: a workbook created with the 'mono' brand (IBCS greys, Arial)
+    h = Handlers(settings)
+    h.create_workbook("m.xlsx", sheets=["T"], brand="mono")
+    h.write("m.xlsx", "T", "A1", [["Item", "Value"], ["a", 1.5], ["b", 2.25]], overwrite=True)
+
+    # Act: no brand argument and no SLIM_SHEET_BRAND
+    text = h.style_sheet("m.xlsx", "T", overwrite=True)
+    h.format_range("m.xlsx", "T", "A1", role="title", overwrite=True)
+
+    # Assert
+    ws = openpyxl.load_workbook(tmp_path / "m.xlsx")["T"]
+    assert "brand mono" in text and ws["A1"].font.name == "Arial"
+    assert "brand slim" in h.style_sheet("m.xlsx", "T", brand="slim", overwrite=True)
+
+
+def test_input_role_cells_stay_editable_under_protection(
+    tmp_path: Path, settings: Settings
+) -> None:
+    # Arrange
+    _numbers_book(tmp_path)
+    h = Handlers(settings)
+
+    # Act
+    h.format_range("n.xlsx", "data", "B2:B4", role="input")
+    h.sheet_layout("n.slim.xlsx", "data", protect=True, overwrite=True)
+
+    # Assert
+    ws = openpyxl.load_workbook(tmp_path / "n.slim.xlsx")["data"]
+    assert ws.protection.sheet is True
+    assert ws["B2"].protection.locked is False and ws["B4"].protection.locked is False
+    assert ws["A2"].protection.locked is True

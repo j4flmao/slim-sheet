@@ -142,7 +142,7 @@ def export_macros(
 ) -> OutputResult:
     """Write each module as .bas/.cls text next to the workbook (Excel: File > Import File)."""
     source, project = _project(path, settings)
-    folder = resolve_output(out_dir, settings)
+    folder = resolve_output(out_dir, settings, base=source.parent)
     if folder.suffix:
         raise SlimError(
             ErrorCode.BAD_ARGUMENT,

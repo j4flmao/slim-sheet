@@ -15,7 +15,7 @@ from typing import Any
 from slim_sheet.adapters import journal
 from slim_sheet.adapters.engine.cache import LoadedTable
 from slim_sheet.adapters.engine.duck import Engine, engine_from, load_tables
-from slim_sheet.adapters.sandbox import resolve_output
+from slim_sheet.adapters.sandbox import resolve_output, resolve_path
 from slim_sheet.adapters.writers.export import export_grids, export_table
 from slim_sheet.adapters.writers.pivot_native import PivotSpec, build_pivot, layout_values
 from slim_sheet.config import Settings
@@ -127,7 +127,8 @@ def pivot(
         full = engine.con.execute(sql).to_arrow_table() if (to_sheet or out_path) else None
     output = None
     if full is not None and out_path:
-        target = output_path(out_path, settings, overwrite)
+        base = resolve_path(path, settings).parent
+        target = output_path(out_path, settings, overwrite, base)
         backup = journal_before_write(target, f"pivot {label}")
         export_table(full, target, sheet="pivot")
         output = OutputResult(label, target.name, f"{full.num_rows} pivot rows", backup)
@@ -315,7 +316,8 @@ def _split_to_sheets(
     out_path: str | None,
     overwrite: bool,
 ) -> OutputResult:
-    target = output_path(out_path or default_output(source, "split", ".xlsx"), settings, overwrite)
+    raw = out_path or default_output(source, "split", ".xlsx")
+    target = output_path(raw, settings, overwrite, base=source.parent)
     names: list[str] = []
     for name, _ in parts:
         base, n, candidate = name[:28], 2, name[:31]
@@ -343,7 +345,7 @@ def _split_to_files(
             "In files mode out_path is a folder",
             hint=f"e.g. out_path='{source.stem}_split'",
         )
-    folder = resolve_output(raw, settings)  # inside the roots, parent folder exists
+    folder = resolve_output(raw, settings, base=source.parent)  # inside the roots
     folder.mkdir(exist_ok=True)
     suffix = (
         ".xlsx"

@@ -49,9 +49,9 @@ def convert(
     overwrite: bool = False,
     csv: CsvOptions | None = None,
 ) -> OutputResult:
-    target = output_path(out_path, settings, overwrite)
     options = csv or CsvOptions()
     source = resolve_path(path, settings)
+    target = output_path(out_path, settings, overwrite, base=source.parent)
     if source == target:
         raise SlimError(ErrorCode.WRITE_CONFLICT, "out_path must differ from path for convert")
     if options.given and sniff(source) in (FileFormat.CSV, FileFormat.TSV):

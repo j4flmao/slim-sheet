@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -22,6 +23,11 @@ _PERCENT_WORDS = {"%", "pct", "percent", "percentage", "margin", "rate", "share"
 _GROWTH_WORDS = {"growth", "change", "yoy", "mom", "qoq", "delta", "variance", "var"}
 _MULTIPLE_WORDS = {"multiple", "x", "pe"}
 _YEAR_WORDS = {"year", "fy", "yr"}
+_COUNT_WORDS = {"count", "companies", "customers", "orders", "items", "units", "makers", "listed",
+                "employees", "headcount", "qty", "quantity", "number", "rows"}  # fmt: skip
+_AMOUNT_WORDS = {"revenue", "income", "profit", "sales", "cost", "costs", "amount", "value",
+                 "price", "total", "cap", "usd", "eur", "vnd", "bn", "m", "k", "spend", "budget",
+                 "balance", "margin", "ebitda", "net", "gross"}  # fmt: skip
 _ID_WORDS = {"id", "code", "zip", "postal", "postcode", "phone", "ticker", "sku", "ref"}
 _MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 _PERIOD = re.compile(
@@ -37,6 +43,23 @@ def _words(header: str) -> set[str]:
     return words | ({"%"} if "%" in text else set())
 
 
+def _from_header(words: set[str]) -> tuple[str | None, str]:
+    """Formula columns have no values to look at (they are computed in Excel): use the header."""
+    if words & _ID_WORDS:
+        return None, "formula column, identifier header"
+    if words & _GROWTH_WORDS:
+        return "growth", "formula column, growth/change header"
+    if words & _PERCENT_WORDS:
+        return "percent", "formula column, rate/share header"
+    if words & _MULTIPLE_WORDS:
+        return "multiple", "formula column, multiple header"
+    if words & _COUNT_WORDS:
+        return "integer", "formula column, count header"
+    if words & _AMOUNT_WORDS:
+        return "number1", "formula column, amount header"
+    return None, "formula column, header gives no number type"
+
+
 def _numbers(values: Sequence[object]) -> list[float]:
     return [float(v) for v in values if isinstance(v, int | float) and not isinstance(v, bool)]
 
@@ -46,6 +69,9 @@ def infer_format(header: str, values: Sequence[object]) -> tuple[str | None, str
     present = [v for v in values if v is not None and v != ""]
     if not present:
         return None, "empty"
+    formulas = [v for v in present if isinstance(v, str) and v.startswith("=")]
+    if len(formulas) >= len(present) * 0.8:
+        return _from_header(_words(header))
     if all(isinstance(v, dt.date | dt.datetime) for v in present):
         return "date", "dates"
     nums = _numbers(present)
@@ -55,12 +81,13 @@ def infer_format(header: str, values: Sequence[object]) -> tuple[str | None, str
     if words & _ID_WORDS:
         return None, "identifier"
     biggest = max(abs(n) for n in nums)
+    typical = statistics.median(abs(n) for n in nums)  # one outlier must not flip the column
     whole = all(n.is_integer() for n in nums)
     if words & _YEAR_WORDS and whole and all(1900 <= n <= 2100 for n in nums):
         return "year", "year numbers"
-    if words & _GROWTH_WORDS and biggest <= 10:
+    if words & _GROWTH_WORDS and typical <= 10:
         return "growth", "growth/change header with fractions"
-    if words & _PERCENT_WORDS and biggest <= 1.5:
+    if words & _PERCENT_WORDS and typical <= 1.5:
         return "percent", "rate/share header with fractions"
     if words & _PERCENT_WORDS:
         return "number1", "rate header but values look like points, not fractions"
