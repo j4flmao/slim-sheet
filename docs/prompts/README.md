@@ -18,6 +18,14 @@ A full prompt is four blocks pasted in this order:
 
 Copy only the text inside each file's code block.
 
+**Have a known task?** [recipes/](recipes/README.md) has about 50 one-paste prompts in 8 packs: finance,
+sales & marketing, HR, operations, data preparation, Excel tasks, reporting and Vietnam (VND formats,
+e-invoice reconciliation, payroll with insurance).
+
+**Want a filled-in example?** [examples.md](examples.md) has five complete sets (model audit, macro
+replacement, precise edit, pre-share review, CSV import) with what a good reply looks like, plus
+one-line versions for strong models.
+
 **In a hurry?** [design.md](design.md) has three-line prompts that produce a branded dashboard or a
 professionally formatted table in one tool call (`build_report`, `style_sheet`), the compact KPI/chart
 grammar, and how a company sets its brand once with `SLIM_SHEET_BRAND`.
@@ -52,16 +60,23 @@ CONSTRAINTS: <e.g. exclude internal customers, fiscal year starts in April, hide
 | [hr-analyst](roles/hr-analyst.md) | headcount, attrition, tenure, absence, pay structure (privacy-safe) | dashboard |
 | [reconciliation-analyst](roles/reconciliation-analyst.md) | match two sources, explain every difference, aging | reconciliation-report |
 | [data-quality-steward](roles/data-quality-steward.md) | audit and clean data before anyone analyses it | clean-dataset |
+| [model-auditor](roles/model-auditor.md) | formula models: errors, fragile logic, which inputs drive outputs | audit-report |
+| [workbook-editor](roles/workbook-editor.md) | one precise change: new column, fill, delete rows, table, rules | edited-workbook |
+| [macro-migrator](roles/macro-migrator.md) | .xlsm/.xls macros: what they do, risk, redo the job with tools | edited-workbook |
+| [file-reviewer](roles/file-reviewer.md) | before sharing or opening a file: hidden content, personal data, links, macros | audit-report |
 
 ## Outputs
 
 | Output | Deliverable |
 |---|---|
 | [dashboard](outputs/dashboard.md) | one-screen executive dashboard built with `build_report`: KPI tiles, 2–4 charts, KPIs and Notes sheets |
+| [dashboard-pack](outputs/dashboard-pack.md) | several dashboards (overview, what changed, segment) + chart gallery: 5+ chart types, every title checked by a query |
 | [report-workbook](outputs/report-workbook.md) | Summary of findings + one sheet per question + Data, Data Quality, Notes |
 | [clean-dataset](outputs/clean-dataset.md) | cleaned xlsx/csv/parquet + data dictionary + quality log |
 | [reconciliation-report](outputs/reconciliation-report.md) | matched / differences / one-sided items + waterfall of the difference |
 | [quick-answer](outputs/quick-answer.md) | answer in chat only, nothing written |
+| [audit-report](outputs/audit-report.md) | verdict + findings by severity with exact addresses; optional findings workbook |
+| [edited-workbook](outputs/edited-workbook.md) | the requested change on a working copy + change log + diff check |
 
 Any role can be combined with any output (e.g. finance-analyst + dashboard for a CFO view, or
 data-quality-steward + quick-answer for a fast health check).
@@ -82,8 +97,10 @@ report findings, assumptions and checks.
 
 - The server's default tier is `full` (30 tools); all patterns need it except `quick-answer`.
 - Frontier models (Claude, GPT-class, Gemini Pro): use the full blocks as they are.
-- Local 7–14B models: use [small-models.md](small-models.md) — a compact single block with the same
-  method — and one question at a time.
+- Local 7–14B models: use [small-models.md](small-models.md) — compact single blocks (analysis, edit,
+  macro reading) with the same method — and one question or change at a time.
+- Hosts that show MCP prompts (e.g. Claude Desktop) also offer `dashboard`, `audit_model`, `clean_data`,
+  `format_workbook` and `replace_macro` as one-click workflows.
 
 ## Tips for reliable results
 

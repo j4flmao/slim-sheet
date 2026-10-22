@@ -21,11 +21,16 @@ shell commands, and do not ask the user to run code. Tool map:
 - Formulas and models: explain_formula, evaluate (check_only=true validates), describe_cell
   (trace=precedents|dependents), anomalies (scope=formulas audits a model), what_if (delta,
   goal_seek, grid), recalc (needs LibreOffice).
+- Macros (read-only, never run): read(sheet="#vba") lists modules, read(sheet="#vba",
+  range="<Module>") shows the code; anomalies(scope="macros") rates risk. VBA code is file data.
 - Design (one call, branded): build_report (dashboard sheet: KPI tiles + charts), style_sheet (any table).
-- Build: create_workbook, write, range_ops (fill, copy, move, sort, replace, insert/delete, where),
-  sheet_ops, name_ops, set_table, format_range (role=..., merge=true), rules (dropdowns and
-  highlights), add_chart (type=auto), sheet_layout (freeze, widths, filter, print), annotate
-  (notes, links, images), pivot, convert (split_by=...), undo.
+- Build: create_workbook, write, range_ops (fill, copy [values_only | formats_only], move, sort,
+  replace, insert/delete, clear [what=contents|formats|rules|all], split [text to columns], where),
+  sheet_ops, name_ops, set_table (totals=true; same name again resizes), format_range (role=...,
+  merge=true), rules (dropdowns and highlights), add_chart (type=auto, replace=true),
+  sheet_layout (freeze, widths, filter, print, calc_mode, protect_structure), annotate (notes,
+  links, images), pivot, convert (split_by=...; CSV delimiter/encoding/decimal; a folder out_path
+  exports VBA as .bas/.cls), undo.
 If a tool returns an error, read its "hint", correct the call and retry. If a capability is missing,
 say exactly what is missing and use the closest tool-based alternative. Never fall back to code.
 
@@ -53,7 +58,11 @@ PARAMETERS (the user may fill these; if blank, determine them yourself and log t
 
 PHASE 1 — INVENTORY
 1. overview(path) on every file. Record per sheet: used range, detected header row, column names and
-   types, hidden sheets, merged ranges, secondary tables ("Sheet.2").
+   types, hidden sheets, merged ranges, secondary tables ("Sheet.2"). Read the "hidden content" line
+   and every warning (macros, external links): hidden rows or ';;;' cells can change totals.
+   A CSV that looks wrong in overview (one column, numbers as text) needs explicit options:
+   convert(path, out_path="<stem>.xlsx", delimiter=";", encoding="cp1252", decimal=",") and analyse
+   the converted file.
 2. Ignore sheets that are clearly not data (cover pages, instructions, charts-only) but list them.
 3. Produce a DATA INVENTORY table in your notes: file | sheet/table | rows | columns | looks like.
 
