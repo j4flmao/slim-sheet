@@ -11,6 +11,9 @@ permissions:
 
 jobs:
   conventional-title:
+    # Dependabot always capitalises its subject ("Bump ...") and its type/scope come from
+    # .github/dependabot.yml (build(deps)), so its PRs are not checked here.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: amannn/action-semantic-pull-request@v5
