@@ -38,15 +38,22 @@ def check_suffix(target: Path) -> str:
     return suffix
 
 
-def export_table(table: pa.Table, target: Path, sheet: str = "data") -> None:
+def export_table(
+    table: pa.Table,
+    target: Path,
+    sheet: str = "data",
+    delimiter: str | None = None,
+    bom: bool = False,
+) -> None:
+    """`delimiter` / `bom` apply to csv/tsv output (a UTF-8 BOM makes Excel read accents right)."""
     suffix = check_suffix(target)
     if suffix == ".xlsx":
         _atomic(target, lambda tmp: _xlsx(tmp, [(sheet, _table_rows(table))]))
     elif suffix in (".csv", ".tsv"):
-        delimiter = "\t" if suffix == ".tsv" else ","
+        sep = delimiter or ("\t" if suffix == ".tsv" else ",")
         safe = _defuse(table)
-        options = pacsv.WriteOptions(delimiter=delimiter)
-        _atomic(target, lambda tmp: pacsv.write_csv(safe, tmp, write_options=options))
+        options = pacsv.WriteOptions(delimiter=sep)
+        _atomic(target, lambda tmp: _write_csv(safe, tmp, options, bom))
     elif suffix == ".parquet":
         _atomic(target, lambda tmp: pq.write_table(table, tmp))
     else:
@@ -96,6 +103,13 @@ def _defuse(table: pa.Table) -> pa.Table:
         else:
             columns.append(column)
     return pa.Table.from_arrays(columns, names=table.column_names)
+
+
+def _write_csv(table: pa.Table, path: Path, options: pacsv.WriteOptions, bom: bool) -> None:
+    with path.open("wb") as handle:
+        if bom:
+            handle.write(b"\xef\xbb\xbf")
+        pacsv.write_csv(table, handle, write_options=options)
 
 
 def _ndjson(table: pa.Table, path: Path) -> None:

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import datetime as dt
 import shutil
 import zipfile
 from pathlib import Path
 
 import openpyxl
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 from openpyxl.formatting.rule import CellIsRule
 from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -17,6 +20,7 @@ from slim_sheet.core.errors import ErrorCode, SlimError
 from slim_sheet.core.shift import REF_ERROR, Shift, quote_sheet, shift_address, shift_formula
 from slim_sheet.interfaces.cli import main
 from slim_sheet.interfaces.handlers import Handlers
+from slim_sheet.interfaces.mcp_server import build_server
 from slim_sheet.services import charts, recalc, reshape, structure, styling
 
 
@@ -283,6 +287,108 @@ def test_format_range_rejects_bad_vocab(sales_grid: Path, settings: Settings) ->
         styling.format_range("grid.xlsx", "Sales", "A1", settings, align="middle")
 
 
+def test_format_range_valign_and_vertical_align_hint(sales_grid: Path, settings: Settings) -> None:
+    # Act
+    styling.format_range("grid.xlsx", "Sales", "A1:C1", settings, align="left", valign="middle")
+    with pytest.raises(SlimError) as info:
+        styling.format_range("grid.xlsx", "Sales", "A1", settings, align="top")
+
+    # Assert
+    cell = _slim(sales_grid)["Sales"]["A1"]
+    assert (cell.alignment.horizontal, cell.alignment.vertical) == ("left", "center")
+    assert "valign='top'" in info.value.hint
+
+
+def test_autofit_sizes_formulas_from_number_format_not_formula_text(
+    sales_grid: Path, settings: Settings
+) -> None:
+    # Arrange
+    wb = openpyxl.load_workbook(sales_grid)
+    ws = wb["Sales"]
+    ws["E2"] = "=SUM(Sales!C2:C3)/SUM(Sales!C2:C6)"
+    ws["E2"].number_format = "0.00%"
+    ws["F2"] = "=SUM(Sales!C2:C3)+SUM(Sales!C4:C6)+SUM(Sales!C2:C6)"
+    wb.save(sales_grid)
+
+    # Act
+    styling.format_range("grid.xlsx", "Sales", "E2:F2", settings, autofit=True)
+
+    # Assert
+    widths = _slim(sales_grid)["Sales"].column_dimensions
+    assert widths["E"].width == styling.PERCENT_CHARS + 2
+    assert widths["F"].width == styling.GENERAL_CHARS + 2
+
+
+def test_autofit_caps_wrapped_text_and_scales_with_font_size(
+    sales_grid: Path, settings: Settings
+) -> None:
+    # Arrange
+    wb = openpyxl.load_workbook(sales_grid)
+    ws = wb["Sales"]
+    ws["A1"] = "Share of revenue from the top ten companies"
+    ws["B1"] = "Antidisestablishmentarianism rules"
+    wb.save(sales_grid)
+    styling.format_range("grid.xlsx", "Sales", "A1:B1", settings, wrap=True)
+    styling.format_range("grid.slim.xlsx", "Sales", "C1", settings, font_size=22)
+
+    # Act
+    styling.format_range("grid.slim.xlsx", "Sales", "A1:C6", settings, autofit=True)
+
+    # Assert
+    widths = _slim(sales_grid)["Sales"].column_dimensions
+    assert widths["A"].width == styling.WRAP_WIDTH + 2
+    assert widths["B"].width == len("Antidisestablishmentarianism") + 2
+    assert widths["C"].width == len("Total") * 2 + 2
+
+
+def test_autofit_empty_range_and_dates(sales_grid: Path, settings: Settings) -> None:
+    # Arrange
+    wb = openpyxl.load_workbook(sales_grid)
+    wb["Sales"]["H2"] = dt.date(2026, 10, 20)
+    wb["Sales"]["H2"].number_format = "yyyy-mm-dd"
+    wb.save(sales_grid)
+
+    # Act
+    result = styling.format_range("grid.xlsx", "Sales", "H1:J9", settings, autofit=True)
+
+    # Assert
+    assert "widths for 1 column(s)" in result.summary
+    assert _slim(sales_grid)["Sales"].column_dimensions["H"].width == len("yyyy-mm-dd") + 2
+
+
+def test_mcp_accepts_numbers_for_text_params(sales_grid: Path, settings: Settings) -> None:
+    # Arrange: MCP clients turn "0" / "5" into JSON numbers
+    server = build_server(settings)
+    calls = [
+        ("rules", {"range": "C2:C6", "kind": "between", "value": 0, "value2": 2.5}),
+        ("format_range", {"range": "C2:C6", "number_format": 0}),
+        ("rules", {"range": "C2:C6", "kind": "whole", "value": 1, "value2": 100}),
+        ("range_ops", {"op": "insert", "range": 8}),
+    ]
+
+    # Act
+    for tool, args in calls:
+        asyncio.run(server.call_tool(tool, {"path": "grid.xlsx", "sheet": "Sales", **args}))
+
+    # Assert
+    ws = _slim(sales_grid)["Sales"]
+    rule = next(r for cf in ws.conditional_formatting for r in cf.rules)
+    assert rule.formula == ["0", "2.5"]
+    assert ws["C2"].number_format == "0"
+    dv = ws.data_validations.dataValidation[0]
+    assert (dv.formula1, dv.formula2) == ("1", "100")
+
+
+def test_mcp_text_params_still_reject_booleans(sales_grid: Path, settings: Settings) -> None:
+    # Arrange
+    server = build_server(settings)
+    args = {"path": "grid.xlsx", "sheet": "Sales", "range": "A1", "number_format": True}
+
+    # Act / Assert
+    with pytest.raises(ToolError):
+        asyncio.run(server.call_tool("format_range", args))
+
+
 def test_set_table_and_conflicts(sales_grid: Path, settings: Settings) -> None:
     # Act
     styling.set_table("grid.xlsx", "Sales", "A1:C6", "SalesT", settings)
@@ -527,12 +633,12 @@ def test_full_tier_handlers_and_generated_cli(
     out = capsys.readouterr().out
     code_v = main(
         [
-            "add_validation",
+            "rules",
             "grid.slim.xlsx",
             "Sales",
             "C2:C6",
             "whole",
-            "--min",
+            "--value",
             "0",
             "--no-allow-blank",
         ]
@@ -554,7 +660,7 @@ def test_full_tier_hidden_from_standard(
 ) -> None:
     # Arrange
     monkeypatch.setenv("SLIM_SHEET_ROOTS", str(sales_grid.parent))
-    monkeypatch.delenv("SLIM_SHEET_TIER", raising=False)
+    monkeypatch.setenv("SLIM_SHEET_TIER", "standard")
 
     # Act
     code = main(["recalc", str(sales_grid)])

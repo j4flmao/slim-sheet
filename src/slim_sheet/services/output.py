@@ -11,8 +11,9 @@ from slim_sheet.config import Settings
 from slim_sheet.core.errors import ErrorCode, SlimError
 
 
-def output_path(raw: str, settings: Settings, overwrite: bool) -> Path:
-    target = resolve_output(raw, settings)
+def output_path(raw: str, settings: Settings, overwrite: bool, base: Path | None = None) -> Path:
+    """`base`: folder of the source file; a relative `raw` is written next to it."""
+    target = resolve_output(raw, settings, base)
     check_suffix(target)
     if target.exists() and not overwrite:
         raise SlimError(

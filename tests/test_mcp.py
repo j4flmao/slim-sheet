@@ -34,7 +34,16 @@ def test_server_lists_lite_tools_with_flat_args(settings: Settings) -> None:
     tools = asyncio.run(server.list_tools())
 
     # Assert
-    lite = {"overview", "read", "find", "query", "profile", "write", "explain_formula"}
+    lite = {
+        "overview",
+        "read",
+        "find",
+        "query",
+        "profile",
+        "write",
+        "explain_formula",
+        "build_report",
+    }
     assert {t.name for t in tools} == lite
     read_schema = next(t for t in tools if t.name == "read").input_schema
     expected = ["path", "sheet", "range", "cursor", "max_tokens", "format"]
@@ -92,3 +101,31 @@ def test_write_tool_is_marked_destructive(settings: Settings) -> None:
     assert tools["write"].annotations.read_only_hint is False
     assert tools["query"].annotations is not None
     assert tools["query"].annotations.read_only_hint is True
+
+
+def test_default_tier_is_full_and_placeholders_fall_back() -> None:
+    # Act / Assert
+    assert load_settings({}).tier == "full"
+    assert load_settings({"SLIM_SHEET_TIER": ""}).tier == "full"
+    assert load_settings({"SLIM_SHEET_TIER": "${user_config.tier}"}).tier == "full"
+    assert load_settings({"SLIM_SHEET_TIER": " Lite "}).tier == "lite"
+    assert len(enabled_tools(load_settings({}))) == 30
+
+
+def test_instructions_name_every_enabled_tool_and_hidden_ones(settings: Settings) -> None:
+    # Arrange
+    from slim_sheet.interfaces.mcp_server import build_instructions
+
+    full = {t.name for t in enabled_tools(replace(settings, tier="full"))}
+    lite = {t.name for t in enabled_tools(replace(settings, tier="lite"))}
+
+    # Act
+    full_text = build_instructions(full)
+    lite_text = build_instructions(lite)
+
+    # Assert
+    assert all(name in full_text for name in full)
+    assert "instead of writing Python/openpyxl" in full_text
+    assert "Not enabled" not in full_text
+    assert "range_ops (fill, copy, move, sort, replace, insert/delete rows or columns)" in full_text
+    assert "Not enabled in this tier:" in lite_text and "add_chart" in lite_text

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from slim_sheet.core.a1 import format_range, index_to_col
-from slim_sheet.core.budget import cell_text
+from slim_sheet.core.budget import UNTRUSTED, cell_text
 from slim_sheet.core.formula import FormulaReport
 from slim_sheet.core.models import (
     CellValue,
@@ -41,7 +41,7 @@ def render_query(result: QueryResult, max_chars: int) -> str:
         if result.rows
         else f"0 of {result.total_rows} rows"
     )
-    lines = [f"## query: {span}", query_header(result.columns)]
+    lines = [f"## query: {span} {UNTRUSTED}", query_header(result.columns)]
     lines += [query_row(row, max_chars) for row in result.rows]
     if result.next_offset is not None:
         lines.append(
@@ -55,7 +55,8 @@ def render_find(result: FindResult) -> str:
         scanned = result.cells_scanned
         return f"No cells in {result.path} contain '{result.query}' ({scanned} cells scanned)."
     more = " (more exist; narrow by sheet or raise max_results)" if result.truncated else ""
-    lines = [f"## {len(result.hits)} match(es) for '{result.query}' in {result.path}{more}"]
+    count = f"{len(result.hits)} match(es) for '{result.query}' in {result.path}{more}"
+    lines = [f"## {count} {UNTRUSTED}"]
     for hit in result.hits:
         address = f"{hit.sheet}!{index_to_col(hit.col)}{hit.row + 1}"
         lines.append(f"- {address}: {cell_text(hit.value, FIND_VALUE_CHARS)}")

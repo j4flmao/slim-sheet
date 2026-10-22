@@ -9,8 +9,10 @@ import openpyxl
 from openpyxl.workbook.defined_name import DefinedName
 
 from slim_sheet.adapters import journal
+from slim_sheet.adapters.brand import resolve_brand
 from slim_sheet.adapters.sandbox import resolve_output
 from slim_sheet.adapters.writers.chart_refs import charts_reading
+from slim_sheet.adapters.writers.theme import apply_brand
 from slim_sheet.adapters.writers.workbook_refs import (
     count_references,
     rename_references,
@@ -32,7 +34,9 @@ MAX_COUNT = 10_000
 _BAD_SHEET_CHARS = re.compile(r"[\[\]:*?/\\]")
 
 
-def _check_sheet_name(wb: Any, name: str | None) -> str:
+def _check_sheet_name(wb: Any, name: str | None, current: str | None = None) -> str:
+    """`current`: the sheet being renamed, so a change of letter case only ('data' -> 'Data')
+    is allowed, as in Excel."""
     if not name or not name.strip():
         raise SlimError(ErrorCode.BAD_ARGUMENT, "new_name is required", hint="e.g. new_name='Q1'")
     name = name.strip()
@@ -42,7 +46,7 @@ def _check_sheet_name(wb: Any, name: str | None) -> str:
             f"Invalid sheet name '{name}'",
             hint="At most 31 characters, none of [ ] : * ? / \\ and no leading quote.",
         )
-    if any(s.casefold() == name.casefold() for s in wb.sheetnames):
+    if any(s.casefold() == name.casefold() and s != current for s in wb.sheetnames):
         raise SlimError(ErrorCode.BAD_ARGUMENT, f"Sheet '{name}' already exists")
     return name
 
@@ -51,8 +55,13 @@ def _check_sheet_name(wb: Any, name: str | None) -> str:
 
 
 def create_workbook(
-    path: str, settings: Settings, sheets: list[str] | None = None, overwrite: bool = False
+    path: str,
+    settings: Settings,
+    sheets: list[str] | None = None,
+    overwrite: bool = False,
+    brand: str | None = None,
 ) -> OutputResult:
+    look, _explicit = resolve_brand(brand, settings)
     target = resolve_output(path, settings)
     if target.suffix.lower() != ".xlsx":
         raise SlimError(
@@ -69,9 +78,10 @@ def create_workbook(
     names = sheets or ["Sheet1"]
     for name in names:
         wb.create_sheet(_check_sheet_name(wb, name))
+    apply_brand(wb, look, force=True)
     backup = journal.record(target, f"create_workbook {', '.join(names)}")
     save_atomic(wb, target)
-    summary = f"new workbook with sheet(s) {', '.join(wb.sheetnames)}"
+    summary = f"new workbook with sheet(s) {', '.join(wb.sheetnames)} (brand {look.name})"
     return OutputResult(target.name, target.name, summary, backup.name if backup else None)
 
 
@@ -119,7 +129,11 @@ def _add_sheet(wb: Any, name: str, position: int | None) -> Change:
 
 def _rename_sheet(wb: Any, ws: Any, new_name: str | None) -> Change:
     old = ws.title
-    title = _check_sheet_name(wb, new_name)
+    title = _check_sheet_name(wb, new_name, current=old)
+    if title.casefold() == old.casefold():
+        ws.title = f"~slim-rename-{id(ws)}"[
+            :31
+        ]  # openpyxl would turn 'data' -> 'Data' into 'Data1'
     ws.title = title
     report = rename_references(wb, old, title)
     return Change(f"renamed '{old}' to '{title}'; {report.summary()}")

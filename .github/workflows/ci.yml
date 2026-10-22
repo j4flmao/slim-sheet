@@ -32,3 +32,17 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv build
       - run: uvx twine check --strict dist/*
+
+  inspector:
+    runs-on: ubuntu-latest
+    # The official Inspector CLI is still evolving; a failure here is reported, not blocking.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: uv sync --all-extras
+      - name: tools/list through the MCP Inspector CLI
+        run: npx -y @modelcontextprotocol/inspector --cli uv run slim-sheet mcp --method tools/list | grep -q what_if

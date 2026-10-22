@@ -14,6 +14,7 @@ import duckdb
 
 from slim_sheet.adapters.engine.cache import LoadedTable
 from slim_sheet.adapters.engine.duck import Engine, engine_from, load_tables
+from slim_sheet.adapters.sandbox import resolve_path
 from slim_sheet.adapters.writers.export import export_table
 from slim_sheet.config import Settings
 from slim_sheet.core.budget import clamp_budget
@@ -23,7 +24,8 @@ from slim_sheet.services.output import journal_before_write, output_path
 from slim_sheet.services.query import run_select
 from slim_sheet.services.workbook import open_file
 
-HOWS = ("left", "inner", "full", "anti")
+HOWS = ("left", "inner", "full", "anti", "reconcile")
+STATUSES = ("different", "only_left", "only_right", "matched")
 
 
 def _q(name: str) -> str:
@@ -70,7 +72,12 @@ def merge(
     out_path: str | None = None,
     overwrite: bool = False,
     max_tokens: int | None = None,
+    compare: list[str] | None = None,
+    tolerance: float = 0.0,
 ) -> MergeResult:
+    """how='reconcile' lines both tables up by key and labels every row matched / different /
+    only_left / only_right, comparing `compare` columns (default: same-named non-key columns;
+    numbers within `tolerance` count as equal)."""
     if how not in HOWS:
         raise SlimError(
             ErrorCode.BAD_ARGUMENT, f"Unknown how '{how}'", hint=f"Use one of: {', '.join(HOWS)}"
@@ -79,11 +86,15 @@ def merge(
         raise SlimError(
             ErrorCode.BAD_ARGUMENT, "keys is empty", hint="e.g. keys=['OrderID'] or ['ID=Order No']"
         )
-    target = output_path(out_path, settings, overwrite) if out_path else None
+    base = resolve_path(path, settings).parent
+    target = output_path(out_path, settings, overwrite, base) if out_path else None
     with _pair_engine(settings, (path, sheet), (other_path, other_sheet)) as (engine, left, right):
         a, b = engine.table("a"), engine.table("b")
         pairs = [_key_pair(k, a, b) for k in keys]
-        sql = _join_sql(a, b, pairs, how)
+        if how == "reconcile":
+            sql = _reconcile_sql(a, b, pairs, _compared(a, b, pairs, compare), tolerance)
+        else:
+            sql = _join_sql(a, b, pairs, how)
         cond = " AND ".join(f"{_txt('a', lk)} = {_txt('b', rk)}" for lk, rk in pairs)
         con = engine.con
         try:
@@ -94,6 +105,7 @@ def merge(
                 con, f"SELECT count(*) FROM b WHERE NOT EXISTS (SELECT 1 FROM a WHERE {cond})"
             )
             dup_keys = _count(con, _dup_sql(pairs))
+            statuses = _statuses(con, sql) if how == "reconcile" else ()
             preview = run_select(
                 engine,
                 sql,
@@ -104,9 +116,9 @@ def merge(
             output = _export(con, sql, target, f"merge {left} + {right}", left) if target else None
         except duckdb.Error as exc:
             raise SlimError(ErrorCode.BAD_SQL, f"Merge failed: {str(exc).splitlines()[0]}") from exc
-    warnings: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = statuses
     if dup_keys and how != "anti":
-        warnings = (
+        warnings += (
             f"{dup_keys} key value(s) repeat in the right table, so matching rows are multiplied",
         )
     return MergeResult(
@@ -193,3 +205,77 @@ def _export(
     backup = journal_before_write(target, note)
     export_table(table, target, sheet="merged")
     return OutputResult(source, target.name, f"{table.num_rows} merged rows", backup)
+
+
+# --- reconcile ----------------------------------------------------------------------------
+
+_NUMERIC = ("TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "FLOAT", "DOUBLE", "DECIMAL")
+
+
+def _compared(
+    a: TableSchema, b: TableSchema, pairs: list[tuple[str, str]], wanted: list[str] | None
+) -> list[tuple[str, str, bool]]:
+    """(left column, right column, numeric) to compare."""
+    keys_a, keys_b = {lk for lk, _ in pairs}, {rk for _, rk in pairs}
+    types_a, types_b = dict(a.columns), dict(b.columns)
+    if wanted:
+        chosen = [_key_pair(w, a, b) for w in wanted]
+    else:
+        right = {name.casefold(): name for name in types_b if name not in keys_b}
+        chosen = [
+            (n, right[n.casefold()]) for n in types_a if n not in keys_a and n.casefold() in right
+        ]
+    if not chosen:
+        raise SlimError(
+            ErrorCode.BAD_ARGUMENT,
+            "Nothing to compare: the tables share no columns besides the keys",
+            hint="Name them: compare=['Amount'] or compare=['Amount=Total']",
+        )
+    return [(lc, rc, _numeric(types_a[lc]) and _numeric(types_b[rc])) for lc, rc in chosen]
+
+
+def _numeric(dtype: str) -> bool:
+    return dtype.upper().startswith(_NUMERIC)
+
+
+def _reconcile_sql(
+    a: TableSchema,
+    b: TableSchema,
+    pairs: list[tuple[str, str]],
+    compared: list[tuple[str, str, bool]],
+    tolerance: float,
+) -> str:
+    cond = " AND ".join(f"{_txt('a', lk)} = {_txt('b', rk)}" for lk, rk in pairs)
+    differs = []
+    columns = [f"COALESCE({_txt('a', lk)}, {_txt('b', rk)}) AS {_q(lk)}" for lk, rk in pairs]
+    for lc, rc, numeric in compared:
+        left, right = f"a.{_q(lc)}", f"b.{_q(rc)}"
+        if numeric:
+            differs.append(
+                f"abs(coalesce({left}, 0) - coalesce({right}, 0)) > {float(tolerance)!r}"
+            )
+            delta = f"coalesce({left}, 0) - coalesce({right}, 0)"
+            columns += [
+                f"{left} AS {_q(lc + ' (left)')}",
+                f"{right} AS {_q(rc + ' (right)')}",
+                f"{delta} AS {_q(lc + ' diff')}",
+            ]
+        else:
+            differs.append(f"coalesce({_txt('a', lc)}, '') <> coalesce({_txt('b', rc)}, '')")
+            columns += [f"{left} AS {_q(lc + ' (left)')}", f"{right} AS {_q(rc + ' (right)')}"]
+    status = (
+        "CASE WHEN a.__in_a IS NULL THEN 'only_right' WHEN b.__in_b IS NULL THEN 'only_left' "
+        f"WHEN {' OR '.join(differs)} THEN 'different' ELSE 'matched' END"
+    )
+    order = " ".join(f"WHEN '{s}' THEN {i}" for i, s in enumerate(STATUSES))
+    return (
+        f"SELECT {status} AS status, {', '.join(columns)} "
+        "FROM (SELECT *, 1 AS __in_a FROM a) a FULL OUTER JOIN (SELECT *, 1 AS __in_b FROM b) b "
+        f"ON {cond} ORDER BY CASE status {order} END"
+    )
+
+
+def _statuses(con: duckdb.DuckDBPyConnection, sql: str) -> tuple[str, ...]:
+    rows = con.execute(f"SELECT status, count(*) FROM ({sql}) GROUP BY 1").fetchall()
+    counts = {str(status): int(n) for status, n in rows}
+    return ("reconcile: " + ", ".join(f"{s} {counts.get(s, 0)}" for s in STATUSES),)

@@ -110,10 +110,19 @@ async def _dry_check(session: ClientSession, task: Task, workdir: Path, tools: s
     return "" if check_answer(task.check, joined, strict=False) else f"answer not in: {joined!r}"
 
 
+def servable(tasks: list[Task], tools: set[str]) -> tuple[list[Task], list[str]]:
+    """Tasks the tier can serve, and the ids skipped (keeps scores fair per tier)."""
+    kept = [t for t in tasks if all(call.tool in tools for call in t.reference)]
+    return kept, [t.id for t in tasks if t not in kept]
+
+
 async def dry_run(tasks: list[Task], workdir: Path, tier: str) -> int:
     failures = 0
     async with mcp_session(workdir, tier) as (session, _):
         tools = {t.name for t in (await session.list_tools()).tools}
+        tasks, skipped = servable(tasks, tools)
+        if skipped:
+            log.info("skipped (tools not in tier %s): %s", tier, ", ".join(skipped))
         for task in tasks:
             reset_workdir(workdir)
             problem = await _dry_check(session, task, workdir, tools)
@@ -155,6 +164,9 @@ async def live_run(tasks: list[Task], workdir: Path, args: argparse.Namespace) -
     runs: list[TaskRun] = []
     async with mcp_session(workdir, args.tier) as (session, instructions):
         listed = (await session.list_tools()).tools
+        tasks, skipped = servable(tasks, {t.name for t in listed})
+        if skipped:
+            log.info("skipped (tools not in tier %s): %s", args.tier, ", ".join(skipped))
         schemas = {t.name: t.input_schema for t in listed}
         payload = openai_tools((t.name, t.description or "", t.input_schema) for t in listed)
         ctx = AgentContext(

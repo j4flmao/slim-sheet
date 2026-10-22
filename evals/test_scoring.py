@@ -22,6 +22,7 @@ from evals.scoring import (
     parse_text_calls,
     to_openai_schema,
     validate_call,
+    values_equal,
     written_mismatches,
 )
 
@@ -176,12 +177,12 @@ def test_load_tasks_rejects_empty_file(tmp_path: Path) -> None:
         load_tasks(path)
 
 
-def test_shipped_task_file_loads_about_forty_tasks() -> None:
+def test_shipped_task_file_loads_forty_to_sixty_tasks() -> None:
     # Act
     tasks = load_tasks(Path(__file__).with_name("tasks.json"))
 
     # Assert
-    assert 40 <= len(tasks) <= 50
+    assert 40 <= len(tasks) <= 60
     assert all(call.tool in t.tools for t in tasks for call in t.reference)
 
 
@@ -346,3 +347,9 @@ def test_parse_text_calls_ignores_plain_answers_and_broken_json() -> None:
     assert parse_text_calls('{"name": "query", "arguments": {"path": ') == []
     assert parse_text_calls('{"total": 5}') == []
     assert parse_text_calls("") == []
+
+
+def test_values_equal_treats_expected_none_as_empty() -> None:
+    # Act / Assert
+    assert values_equal(None, None) and values_equal("", None)
+    assert not values_equal("x", None) and not values_equal(None, "None")

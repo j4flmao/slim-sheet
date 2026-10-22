@@ -1,0 +1,58 @@
+# Git hooks (the Python-ecosystem equivalent of husky + lint-staged + commitlint).
+# Install once:  uv run pre-commit install
+# Run on demand: uv run pre-commit run --all-files
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^src/slim_sheet/data/
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      # Every local hook runs through uv so it uses the exact versions in uv.lock.
+      - id: ruff-check
+        name: ruff check (autofix)
+        entry: uv run ruff check --fix
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]
+      - id: mypy
+        name: mypy --strict (src)
+        entry: uv run mypy src
+        language: system
+        pass_filenames: false
+        files: ^src/.*\.py$
+      - id: manifests
+        name: server.json / manifest.json up to date
+        entry: uv run python scripts/build_manifests.py --check
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|src/slim_sheet/interfaces/toolspec\.py|scripts/build_manifests\.py|server\.json|manifest\.json)$
+      - id: commit-msg
+        name: conventional commit message
+        entry: uv run python scripts/check_commit_msg.py
+        language: system
+        stages: [commit-msg]
+      - id: pytest
+        name: pytest (before push)
+        entry: uv run pytest -q tests
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

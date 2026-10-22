@@ -1,0 +1,35 @@
+name: Feature or new tool
+description: Propose a capability, a new tool, or a change to an existing one
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The spreadsheet task, in your words. What does the agent fail at today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: For a new tool, sketch its name and flat arguments, e.g. `fill_down(path, sheet, range)`.
+    validations:
+      required: true
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Which tier should it live in?
+      description: Tiers have hard caps (lite 8, standard 18, full 30) so small models stay accurate.
+      options:
+        - lite (needed by small local models)
+        - standard
+        - full
+        - extend an existing tool instead
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Could existing tools do it?
+      description: e.g. a `query` or `write` combination. Helps keep the tool surface small.

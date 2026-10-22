@@ -1,4 +1,9 @@
-"""Single source of truth for tool names, tiers and descriptions (PLAN §5, ADR-5)."""
+"""Single source of truth for tool names, tiers, descriptions and annotations (PLAN §5, §17).
+
+Annotations follow the MCP spec defaults, which assume the worst (destructive, not idempotent,
+open world), so every tool states them explicitly: writes go to a journaled working copy and
+are not destructive unless they can delete content (sheet_ops, range_ops).
+"""
 
 from __future__ import annotations
 
@@ -16,193 +21,241 @@ class ToolSpec:
     tier: str
     description: str
     read_only: bool = True
+    title: str = ""
+    destructive: bool = False
+    idempotent: bool = True
+
+
+def _w(name: str, tier: str, description: str, title: str, **flags: bool) -> ToolSpec:
+    """A tool that writes: idempotent unless said otherwise."""
+    return ToolSpec(name, tier, description, False, title, **flags)
 
 
 TOOLS: tuple[ToolSpec, ...] = (
+    # --- lite -------------------------------------------------------------------------------
     ToolSpec(
         "overview",
         "lite",
-        "Map a spreadsheet file: sheets, used ranges, header row, column names and types. "
-        "Call this first. Example: overview(path='sales.xlsx')",
+        "Map a spreadsheet file (or list the spreadsheets in a folder; no path lists all allowed "
+        "folders): sheets, used ranges, header row, columns and types. Call this first.",
+        title="Workbook overview",
     ),
     ToolSpec(
         "read",
         "lite",
-        "Read cells as a table with A1 coordinates. Optional sheet, range like 'A1:F50', "
-        "cursor from a previous read, format markdown|tsv|json.",
+        "Read cells as a table with A1 coordinates (sheet, range 'A1:F50', cursor). "
+        "sheet='#vba' lists macros; range='Module1' shows its code.",
+        title="Read cells",
     ),
     ToolSpec(
         "find",
         "lite",
         "Find cells containing text (or a regex) across sheets; returns Sheet!A1 addresses. "
         "Example: find(path='sales.xlsx', text='refund')",
+        title="Find cells",
     ),
     ToolSpec(
         "query",
         "lite",
         "Run one read-only SQL SELECT; tables are sheet names, quote names with spaces. "
         """Example: sql='SELECT "Region", sum("Total") FROM "Orders" GROUP BY 1'""",
+        title="SQL query",
     ),
     ToolSpec(
         "profile",
         "lite",
         "Column statistics for a sheet: type, nulls, distinct, min, max, mean, median, top values. "
         "Optional columns list.",
+        title="Profile columns",
     ),
-    ToolSpec(
+    _w(
         "write",
         "lite",
         "Write a 2-D values array starting at range's top-left cell, e.g. values=[['Total', 120]]. "
         "Saves to <name>.slim.xlsx unless overwrite=true.",
-        read_only=False,
+        "Write cells",
     ),
     ToolSpec(
         "explain_formula",
         "lite",
         "Explain and check an Excel formula: steps, references, syntax/arity errors. "
         "Pass formula='=...' or path plus cell like 'Sheet1!C7'.",
+        title="Explain formula",
     ),
-    ToolSpec(
+    _w(
+        "build_report",
+        "lite",
+        "Build a branded dashboard sheet from a data sheet in one call. Example: "
+        "kpis=['Revenue=sum:Total','Orders=count'], charts=['trend:Month:Total']",
+        "Build dashboard",
+    ),
+    # --- standard ---------------------------------------------------------------------------
+    _w(
         "clean",
         "standard",
         "Clean a table: ops from trim, collapse_spaces, remove_nonprintable, unify_null, "
         "numbers_from_text, normalize_dates, drop_empty_rows, drop_empty_cols, dedupe. "
         "Previews unless apply=true.",
-        read_only=False,
+        "Clean table",
     ),
     ToolSpec(
         "anomalies",
         "standard",
-        "Find suspicious cells: duplicate keys, wrong types, outliers, spelling variants, "
-        "bad dates, stray spaces. Returns Sheet!A1 addresses.",
+        "Find suspicious cells (duplicates, types, outliers, typos); scope='formulas' audits "
+        "models; scope='macros' rates VBA risks (auto-run, Shell, downloads).",
+        title="Find anomalies",
     ),
-    ToolSpec(
+    _w(
         "merge",
         "standard",
-        "Join two tables on keys (how=left|inner|full|anti) and count unmatched rows on both "
-        "sides. keys=['ID'] or ['ID=Order No']. out_path saves the result.",
-        read_only=False,
+        "Join two tables on keys (how=left|inner|full|anti), or how=reconcile to label rows "
+        "matched/different/only_left/only_right. keys=['ID'] or ['ID=Order No'].",
+        "Join or reconcile tables",
     ),
-    ToolSpec(
+    _w(
         "convert",
         "standard",
-        "Convert a file to xlsx, csv, tsv, parquet or json (by out_path extension). "
-        "Reads xls, xlsb, ods, csv and more.",
-        read_only=False,
+        "Convert to xlsx/csv/tsv/parquet/json by out_path extension; CSV: delimiter=';', "
+        "encoding='cp1252', decimal=','. split_by='Region' splits; a folder exports VBA.",
+        "Convert or split",
     ),
     ToolSpec(
         "diff",
         "standard",
         "Compare two files cell by cell, or row by row with key='ID'. "
         "Example: diff(path='a.xlsx', other_path='a.slim.xlsx')",
+        title="Compare files",
     ),
-    ToolSpec(
+    _w(
         "undo",
         "standard",
-        "Undo the last slim-sheet write to a file (write, clean, convert or merge output).",
-        read_only=False,
-    ),
-    ToolSpec(
-        "validate_formula",
-        "standard",
-        "Check a formula before writing it: syntax, unknown functions, Excel version "
-        "(target='2016' or 'xls'), missing sheets/names. Gives fixes.",
+        "Undo the last slim-sheet write to a file (every editing tool is journaled).",
+        "Undo last write",
+        idempotent=False,
     ),
     ToolSpec(
         "evaluate",
         "standard",
-        "Calculate a formula offline, alone or against a workbook. "
-        "Example: evaluate(path='x.xlsx', cell='Calc!C7') or evaluate(formula='=ROUND(2.5,0)')",
+        "Calculate a formula offline, or check it with check_only=true (target='2016'). Example: "
+        "evaluate(path='x.xlsx', cell='Calc!C7')",
+        title="Evaluate or check formula",
     ),
     ToolSpec(
         "describe_cell",
         "standard",
-        "Everything about one cell: value, formula, number format, font, fill, comment, "
-        "validation, merge. Example: describe_cell(path='x.xlsx', cell='Sheet1!B2')",
+        "Everything about one cell: value, formula, format, note, validation; trace='precedents' "
+        "or 'dependents' follows formulas across sheets.",
+        title="Describe and trace cell",
+    ),
+    _w(
+        "style_sheet",
+        "standard",
+        "Make a table look professional in one call: header, number formats (auto), totals, "
+        "widths, freeze. preset=report|data|finance|striped|minimal.",
+        "Style table",
     ),
     ToolSpec(
+        "what_if",
+        "standard",
+        "Change inputs in memory and see outputs move: op=delta|goal_seek|grid. Example: "
+        "inputs=['Inputs!B3=8%'], outputs=['Model!B20']. Never writes.",
+        title="What-if analysis",
+    ),
+    # --- full -------------------------------------------------------------------------------
+    _w(
         "create_workbook",
         "full",
-        "Create a new empty .xlsx with the given sheet names. Example: "
+        "Create a new empty branded .xlsx with the given sheet names. Example: "
         "create_workbook(path='out.xlsx', sheets=['Data','Summary'])",
-        read_only=False,
+        "Create workbook",
+        idempotent=False,
     ),
-    ToolSpec(
+    _w(
         "sheet_ops",
         "full",
         "Add, rename, delete, copy, move, hide or unhide a sheet (op=...). Renames also fix "
         "formulas that point to the sheet.",
-        read_only=False,
+        "Sheet operations",
+        destructive=True,
+        idempotent=False,
     ),
-    ToolSpec(
-        "rows_ops",
+    _w(
+        "range_ops",
         "full",
-        "Insert or delete rows/columns (op=insert_rows|delete_rows|insert_cols|delete_cols, "
-        "at='5' or 'C', count). Formulas, merges, names are shifted like Excel.",
-        read_only=False,
+        "Edit a block: op=fill|copy|move|transpose|sort|replace|insert|delete|clear|split. "
+        "Example: op='fill', range='D2:D200'. where=\"Status='Closed'\" filters rows.",
+        "Range operations",
+        destructive=True,
+        idempotent=False,
     ),
-    ToolSpec(
+    _w(
         "name_ops",
         "full",
         "List, add or delete defined names. Example: name_ops(path, op='add', name='TaxRate', "
         "ref='Rates!B2')",
-        read_only=False,
+        "Defined names",
     ),
-    ToolSpec(
+    _w(
         "format_range",
         "full",
-        "Style a range: bold, italic, font_color, fill_color ('yellow' or '#FFEB9C'), "
-        "number_format ('currency', 'percent', 'date' or custom), align, wrap, border, autofit.",
-        read_only=False,
+        "Style a range: role ('title','header','total'...), bold, colors, number_format "
+        "('percent','m'...), align, border, merge, autofit.",
+        "Format cells",
     ),
-    ToolSpec(
+    _w(
         "set_table",
         "full",
-        "Turn a range with a header row into a named Excel table. Example: set_table(path, "
-        "sheet='Data', range='A1:D50', name='Sales')",
-        read_only=False,
+        "Turn a range with a header row into a named Excel table; same name again resizes it. "
+        "Example: set_table(path, sheet='Data', range='A1:D50', name='Sales', totals=true)",
+        "Excel table",
+        idempotent=False,
     ),
-    ToolSpec(
-        "add_validation",
+    _w(
+        "rules",
         "full",
-        "Add a dropdown or rule: type=list (values=[...]), whole, decimal, date, text_length "
-        "(min/max) or custom (formula).",
-        read_only=False,
+        "Add a dropdown/input rule (kind=list|whole|decimal|date|text_length|custom) or highlight "
+        "rule (greater_than|between|duplicates|top_n|color_scale|data_bar|formula...).",
+        "Validation and highlight rules",
+        idempotent=False,
     ),
-    ToolSpec(
-        "conditional_format",
-        "full",
-        "Highlight cells by rule: greater_than, less_than, between, equal, text_contains, "
-        "duplicates, top_n, color_scale, data_bar, formula.",
-        read_only=False,
-    ),
-    ToolSpec(
+    _w(
         "add_chart",
         "full",
-        "Insert a chart (column, bar, line, pie, area, scatter) from data_range: header row + "
-        "category column + series columns.",
-        read_only=False,
+        "Insert a clean branded chart (type=auto picks one) from data_range: header row + "
+        "category column + series columns. Optional highlight='North'; replace=true swaps "
+        "the chart at anchor.",
+        "Add chart",
+        idempotent=False,
     ),
-    ToolSpec(
+    _w(
         "pivot",
         "full",
         "Summarise a table: rows=['Region'], values=['Total'], agg=sum|count|avg|min|max, "
-        "optional columns='Month'. Save with out_path or to_sheet.",
-        read_only=False,
+        "columns='Month'. to_sheet saves it; native=true makes a real Excel PivotTable.",
+        "Pivot summary",
     ),
-    ToolSpec(
-        "split",
-        "full",
-        "Split a table by a column's values into sheets of one workbook (mode=sheets) or separate"
-        " files (mode=files).",
-        read_only=False,
-    ),
-    ToolSpec(
+    _w(
         "recalc",
         "full",
         "Recalculate every formula with LibreOffice so cached values are fresh (needs LibreOffice"
         " installed).",
-        read_only=False,
+        "Recalculate",
+    ),
+    _w(
+        "sheet_layout",
+        "full",
+        "Set how a sheet looks and prints: freeze, widths=['A=14'], heights, filter_range, hide, "
+        "gridlines, zoom, print_area, landscape, fit_width, protect; workbook: calc_mode, "
+        "protect_structure.",
+        "Sheet layout",
+    ),
+    _w(
+        "annotate",
+        "full",
+        "Add a note, hyperlink or image to a cell, or remove objects: op=note|link|image|remove. "
+        "Example: op='link', cell='B2', url='https://...'",
+        "Notes, links, images",
+        idempotent=False,
     ),
 )
 

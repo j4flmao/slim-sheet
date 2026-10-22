@@ -190,7 +190,8 @@ def values_equal(actual: Any, expected: Any, tolerance: float = DEFAULT_TOLERANC
             return math.isclose(float(actual), float(expected), abs_tol=tolerance)
         except (TypeError, ValueError):
             return False
-    return str(actual if actual is not None else "").strip().lower() == str(expected).lower()
+    want = "" if expected is None else str(expected)  # None = the cell must be empty
+    return str(actual if actual is not None else "").strip().lower() == want.lower()
 
 
 def split_address(address: str) -> tuple[str, str]:

@@ -324,7 +324,7 @@ def test_phase3_handlers_render(model_xlsx: Path, settings: Settings) -> None:
     h = Handlers(settings)
 
     # Act
-    validated = h.validate_formula(formula="=XLOOKUP(1,A:A,B:B)", target="2016")
+    validated = h.evaluate(formula="=XLOOKUP(1,A:A,B:B)", check_only=True, target="2016")
     evaluated = h.evaluate(path="model.xlsx", cell="Calc!B2")
     described = h.describe_cell("model.xlsx", "Calc!B1")
 

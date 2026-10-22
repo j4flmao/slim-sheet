@@ -1,0 +1,64 @@
+name: Bug report
+description: A tool returned something wrong, failed, or broke a file
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! Please do not attach confidential spreadsheets. A small file that reproduces the problem is ideal.
+  - type: input
+    id: version
+    attributes:
+      label: slim-sheet version
+      description: Output of `slim-sheet --version`
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Agent / host
+      options:
+        - Claude Desktop
+        - Claude Code
+        - Codex
+        - OpenCode
+        - Cursor
+        - VS Code / Copilot
+        - LM Studio
+        - Ollama (mcpo / Open WebUI)
+        - Gemini CLI
+        - Amp
+        - CLI only
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model and tier
+      placeholder: "qwen2.5-7b-instruct, SLIM_SHEET_TIER=lite"
+  - type: input
+    id: format
+    attributes:
+      label: File format
+      placeholder: xlsx / xls / ods / csv / numbers ...
+  - type: textarea
+    id: call
+    attributes:
+      label: Tool call and response
+      description: The exact tool name, arguments and the full response text (or CLI command and output).
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and Python
+      placeholder: Windows 11, Python 3.12 (uv)

@@ -6,11 +6,13 @@ import contextlib
 import os
 import re
 import tempfile
+import warnings
 import zipfile
 from pathlib import Path
 from typing import Any
 
 import openpyxl
+from openpyxl.worksheet.views import Selection
 
 from slim_sheet.core.errors import ErrorCode, SlimError
 
@@ -52,16 +54,70 @@ def lost_features(path: Path, wb: Any) -> list[str]:
     return lost
 
 
+def package_warnings(path: Path) -> list[str]:
+    """External links and data connections; slim-sheet never follows or refreshes them."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+    except (zipfile.BadZipFile, OSError):
+        return []  # not a zip package (csv, xls, ...)
+    found: list[str] = []  # macros are reported by services/macros.py from the content types
+    links = sum(1 for n in names if n.startswith("xl/externalLinks/externalLink"))
+    if links:
+        found.append(f"links to {links} other workbook(s); values may be stale")
+    if "xl/connections.xml" in names or any(n.startswith("xl/queryTables/") for n in names):
+        found.append("has data connections or queries (not refreshed by slim-sheet)")
+    return found
+
+
 def load_for_edit(base: Path) -> openpyxl.Workbook:
     """Full (non read-only) load that keeps VBA for macro-enabled files."""
     keep_vba = base.suffix.lower() in {".xlsm", ".xltm"}
     try:
-        return openpyxl.load_workbook(base, keep_vba=keep_vba)
+        with warnings.catch_warnings():  # sparklines are kept by writers/sparklines.py
+            warnings.filterwarnings("ignore", message="Sparkline Group extension")
+            return openpyxl.load_workbook(base, keep_vba=keep_vba)
     except PermissionError as exc:
         raise _locked(base) from exc
 
 
+def freeze_panes(ws: Any, cell: str | None) -> None:
+    """Freeze at `cell` (None unfreezes). openpyxl keeps the old pane selections when a sheet
+    that was frozen on both axes is frozen again, leaving two <selection pane="bottomLeft">
+    entries; Excel then refuses to open the file. Start from a clean view instead."""
+    view = ws.sheet_view
+    view.pane = None
+    view.selection = [Selection()]
+    ws.freeze_panes = cell
+
+
+def _dedupe_selections(wb: openpyxl.Workbook) -> None:
+    """Keep one selection per pane, and only for panes the split has (a frozen-rows-only sheet
+    has no bottomRight pane). Excel refuses either fault; this repairs older files on save."""
+    for ws in wb.worksheets:
+        views = getattr(ws, "views", None)  # chartsheets have none
+        for view in views.sheetView if views is not None else []:
+            allowed = _panes(view.pane)
+            seen: set[str | None] = set()
+            kept = []
+            for selection in view.selection:
+                if selection.pane not in seen and selection.pane in allowed:
+                    seen.add(selection.pane)
+                    kept.append(selection)
+            view.selection = kept or [Selection()]
+
+
+def _panes(pane: Any) -> set[str | None]:
+    if pane is None:
+        return {None, "topLeft"}
+    rows, cols = bool(pane.ySplit), bool(pane.xSplit)
+    if rows and cols:
+        return {None, "topLeft", "topRight", "bottomLeft", "bottomRight"}
+    return {None, "topLeft", "bottomLeft" if rows else "topRight"}
+
+
 def save_atomic(wb: openpyxl.Workbook, target: Path) -> None:
+    _dedupe_selections(wb)
     fd, tmp_name = tempfile.mkstemp(prefix=".slim-", suffix=target.suffix, dir=target.parent)
     os.close(fd)
     tmp = Path(tmp_name)

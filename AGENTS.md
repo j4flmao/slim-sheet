@@ -10,7 +10,8 @@ it holds the architecture, tool surface, tiers and roadmap. If you change a deci
 
 ## Toolchain (uv only)
 - Python is managed by **uv** (already installed). Never call `pip`, `python -m venv`, or a global `python`.
-- Setup: `uv sync --all-extras`
+- Setup: `uv sync --all-extras && uv run pre-commit install` (hooks: ruff, mypy, manifests, Conventional Commit messages, pytest on push)
+- Demo data: `uv run python scripts/make_demo.py` writes sample workbooks to `~/Documents/slim-sheet-demo`
 - Run server: `uv run slim-sheet mcp` · CLI: `uv run slim-sheet overview <file>`
 - Add a dependency: `uv add <pkg>` (dev: `uv add --dev <pkg>`; optional: `uv add --optional <extra> <pkg>`). Never hand-edit versions in `uv.lock`.
 
@@ -42,7 +43,8 @@ Report the actual output. Do not claim success on a skipped or failing step.
 
 ## Safety rules
 - Never execute model-supplied Python. SQL is read-only unless `SLIM_SHEET_SQL_WRITE=1`.
-- All paths go through `adapters/sandbox.py` (allow-list `SLIM_SHEET_ROOTS`).
+- All paths go through `adapters/sandbox.py`: `SLIM_SHEET_ROOTS` are default folders; outside them only
+  data files in non-system, non-hidden folders are allowed (`SLIM_SHEET_STRICT_ROOTS=1` = roots only).
 - Writes are non-destructive by default (`<stem>.slim<suffix>`), atomic (temp + `os.replace`), and journaled.
 - No network access in any code path unless behind an explicit opt-in env flag.
 

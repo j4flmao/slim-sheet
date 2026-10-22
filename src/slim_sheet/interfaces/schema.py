@@ -73,7 +73,7 @@ def simplify(schema: dict[str, Any]) -> dict[str, Any]:
     """
     out: dict[str, Any] = {}
     for key, value in schema.items():
-        if key == "title":
+        if key in ("title", "additionalProperties"):  # Gemini rejects additionalProperties
             continue
         if key == "properties":
             out[key] = {name: simplify(prop) for name, prop in value.items()}
@@ -83,6 +83,11 @@ def simplify(schema: dict[str, Any]) -> dict[str, Any]:
             options = [opt for opt in value if opt.get("type") != "null"]
             if len(options) == 1:
                 out.update(simplify(options[0]))
+            elif all(set(opt) <= {"type"} for opt in options):
+                # A cell value (text, number or boolean): Gemini and OpenAI strict mode reject
+                # anyOf, so the export leaves the type open and says what fits.
+                kinds = ", ".join(str(opt["type"]) for opt in options)
+                out["description"] = f"a cell value ({kinds})"
             else:
                 out[key] = [simplify(opt) for opt in options]
         elif key == "default" and value is None:

@@ -57,10 +57,10 @@ def test_schema_export_formats_are_flat_and_lean(settings: Settings) -> None:
     anthropic = export_tools(replace(settings, tier="full"), "anthropic")
 
     # Assert
-    assert len(openai) == 7 and openai[0]["type"] == "function"
+    assert len(openai) == 8 and openai[0]["type"] == "function"
     read = next(t for t in openai if t["function"]["name"] == "read")["function"]["parameters"]
     assert read["properties"]["sheet"] == {"type": "string"}
-    assert len(anthropic) == 28 and "input_schema" in anthropic[0]
+    assert len(anthropic) == 30 and "input_schema" in anthropic[0]
     assert all(
         "title" not in prop for t in anthropic for prop in t["input_schema"]["properties"].values()
     )
@@ -68,14 +68,18 @@ def test_schema_export_formats_are_flat_and_lean(settings: Settings) -> None:
         export_tools(settings, "yaml")
 
 
-def test_simplify_keeps_real_unions() -> None:
-    # Act
-    out = simplify(
+def test_simplify_opens_scalar_unions_and_keeps_complex_ones() -> None:
+    # Act: Gemini and OpenAI strict mode reject anyOf, so scalar unions become an open type
+    scalar = simplify(
         {"title": "X", "anyOf": [{"type": "string"}, {"type": "integer"}, {"type": "null"}]}
+    )
+    complex_union = simplify(
+        {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}
     )
 
     # Assert
-    assert out == {"anyOf": [{"type": "string"}, {"type": "integer"}]}
+    assert scalar == {"description": "a cell value (string, integer)"}
+    assert "anyOf" in complex_union
 
 
 def test_encrypted_workbook_read_and_edit_refused(sales_xlsx: Path, settings: Settings) -> None:
@@ -150,5 +154,5 @@ def test_generated_manifests_are_fresh_and_consistent() -> None:
     assert f"<!-- mcp-name: {server['name']} -->" in readme
     assert len(server["description"]) <= 100
     assert server["version"] == manifest["version"]
-    assert len(manifest["tools"]) == 28
+    assert len(manifest["tools"]) == 30
     assert (root / manifest["server"]["entry_point"]).is_file()

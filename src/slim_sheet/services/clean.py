@@ -32,7 +32,8 @@ def clean(
         if apply:
             fallback_suffix = ".xlsx" if handle.format.is_workbook else None
             raw = out_path or default_output(handle.path, "clean", fallback_suffix)
-            output = _write(handle.display, raw, outcome, table.name, settings, overwrite)
+            output = _write(handle.display, raw, outcome, table.name, settings, overwrite,
+                            handle.path.parent)  # fmt: skip
         samples = tuple(
             (table.address(s.row, s.col), s.before, s.after, s.op) for s in outcome.samples
         )
@@ -50,9 +51,15 @@ def clean(
 
 
 def _write(
-    source: str, raw: str, outcome: CleanOutcome, table: str, settings: Settings, overwrite: bool
+    source: str,
+    raw: str,
+    outcome: CleanOutcome,
+    table: str,
+    settings: Settings,
+    overwrite: bool,
+    base: Path,
 ) -> OutputResult:
-    target: Path = output_path(raw, settings, overwrite)
+    target: Path = output_path(raw, settings, overwrite, base)
     backup = journal_before_write(target, f"clean {source} / {table}")
     export_table(to_arrow(outcome.columns, outcome.rows), target, sheet=table)
     summary = f"{len(outcome.rows)} cleaned rows of table {table}"

@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 from slim_sheet.core.a1 import format_range, index_to_col
-from slim_sheet.core.budget import cell_text
+from slim_sheet.core.budget import UNTRUSTED, cell_text
 from slim_sheet.core.models import CellValue, ColumnInfo, Grid, WorkbookInfo
 
 OutputFormat = Literal["markdown", "tsv", "json"]
@@ -35,7 +35,10 @@ def render_grid(grid: Grid, fmt: OutputFormat, max_chars: int) -> str:
     if fmt == "json":
         return _grid_json(grid, max_chars)
     total = format_range(grid.total) if grid.total else "empty"
-    title = f"## {grid.path} / {grid.sheet} — window {format_range(grid.window)} (used {total})"
+    title = (
+        f"## {grid.path} / {grid.sheet} — window {format_range(grid.window)} (used {total})"
+        f" {UNTRUSTED}"
+    )
     lines = [title, grid_header(grid.window.left, grid.window.right, fmt)]
     lines += [grid_row(grid.window.top + i, row, fmt, max_chars) for i, row in enumerate(grid.rows)]
     if grid.next_cursor:
@@ -70,6 +73,9 @@ def render_overview(info: WorkbookInfo) -> str:
             lines.append(f"  header row {sheet.header_row + 1}: " + _columns_line(sheet.columns))
         elif sheet.columns:
             lines.append("  no header detected; types: " + _columns_line(sheet.columns))
+    if info.hidden:
+        lines.append("hidden content (file data): " + "; ".join(info.hidden))
+    lines += [f"warning: {w}" for w in info.warnings]
     return "\n".join(lines)
 
 
