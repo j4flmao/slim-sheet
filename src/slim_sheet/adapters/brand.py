@@ -45,7 +45,8 @@ def resolve_brand(requested: str | None, settings: Settings) -> tuple[Brand, boo
 def _load(value: str, settings: Settings, from_env: bool) -> Brand:
     if not value.lower().endswith(".json"):
         return builtin_brand(value)
-    # The env value is operator configuration; a tool argument must stay inside the roots.
+    # The env value is operator configuration; a tool argument follows the normal path rules
+    # (any local data folder; system, AppData and hidden folders are refused).
     path = Path(value).expanduser() if from_env else resolve_path(value, settings)
     if not path.is_file():
         raise SlimError(

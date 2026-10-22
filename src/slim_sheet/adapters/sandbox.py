@@ -71,11 +71,17 @@ def _refusal(path: Path, folder: bool) -> str | None:
 
 
 def _check(raw: str, resolved: Path, settings: Settings, folder: bool) -> Path:
+    roots = ", ".join(str(r) for r in settings.roots)
+    if raw.strip().startswith(("\\\\", "//")):
+        # A UNC path means a network share on every OS; on Linux/macOS a backslash is not a
+        # separator, so without this check it would resolve to an odd file name in the root.
+        raise SlimError(
+            ErrorCode.PATH_DENIED,
+            f"'{raw}' is refused: network shares are not opened",
+            hint=f"Copy the file to a local data folder such as {roots}.",
+        )
     if _in_roots(resolved, settings):
         return resolved
-    roots = ", ".join(str(r) for r in settings.roots)
-    if raw.strip().startswith(("\\\\", "//")) and not settings.strict_roots:
-        resolved = Path(raw.strip())  # judge the share itself, not what resolve() made of it
     if settings.strict_roots:
         raise SlimError(
             ErrorCode.PATH_DENIED,

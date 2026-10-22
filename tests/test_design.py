@@ -291,13 +291,32 @@ def test_resolve_brand_order_argument_env_default(tmp_path: Path, settings: Sett
     assert from_arg.name == "mono" and arg_explicit
 
 
-def test_brand_file_argument_stays_inside_roots(tmp_path: Path, settings: Settings) -> None:
-    # Act / Assert
-    with pytest.raises(SlimError) as outside:
-        resolve_brand(str(tmp_path.parent / "elsewhere.json"), settings)
+def test_brand_file_argument_follows_the_path_rules(
+    tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: a brand file in a data folder outside the roots, and one in a "system" folder
+    from slim_sheet.adapters import sandbox
+
+    monkeypatch.setattr(sandbox, "_system_folders", lambda: [(tmp_path / "sys").resolve()])
+    home = tmp_path / "home"
+    home.mkdir()
+    settings = replace(settings, roots=(home.resolve(),))  # both folders below are outside it
+    elsewhere = tmp_path / "brands"
+    elsewhere.mkdir()
+    (elsewhere / "acme.json").write_text('{"name": "Acme", "primary": "#C8102E"}', encoding="utf-8")
+    (tmp_path / "sys").mkdir()
+    (tmp_path / "sys" / "x.json").write_text('{"name": "X"}', encoding="utf-8")
+
+    # Act
+    allowed, explicit = resolve_brand(str(elsewhere / "acme.json"), settings)
+
+    # Assert
+    assert allowed.name == "Acme" and explicit
+    with pytest.raises(SlimError) as system:
+        resolve_brand(str(tmp_path / "sys" / "x.json"), settings)
     with pytest.raises(SlimError) as missing:
         resolve_brand("missing.json", settings)
-    assert outside.value.code == ErrorCode.PATH_DENIED
+    assert system.value.code == ErrorCode.PATH_DENIED
     assert missing.value.code == ErrorCode.FILE_NOT_FOUND
 
 
