@@ -13,6 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # pull_request_target runs with the base branch's code; labeler only reads the diff, never PR code.
-      - uses: actions/labeler@v5
+      - uses: actions/labeler@v7
         with:
           sync-labels: true
