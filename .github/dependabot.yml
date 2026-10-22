@@ -1,18 +1,23 @@
 version: 2
+
+# One weekly pull request (one branch) for every dependency: Python packages (uv) and
+# GitHub Actions are gathered into the "all-dependencies" multi-ecosystem group.
+multi-ecosystem-groups:
+  all-dependencies:
+    schedule:
+      interval: weekly
+
 updates:
   - package-ecosystem: uv
     directory: /
-    schedule:
-      interval: weekly
-    groups:
-      python-dependencies:
-        patterns: ["*"]
+    patterns: ["*"]
+    multi-ecosystem-group: all-dependencies
     commit-message:
       prefix: build
       include: scope
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: weekly
+    patterns: ["*"]
+    multi-ecosystem-group: all-dependencies
     commit-message:
       prefix: ci
