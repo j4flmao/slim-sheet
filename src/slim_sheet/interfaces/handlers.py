@@ -506,10 +506,11 @@ class Handlers:
         brand: str | None = None,
         out_path: str | None = None,
         overwrite: bool = False,
+        messages: list[Text] | None = None,
     ) -> str:
         result = report.build_report(
             path, data_sheet, title, self.settings, kpis, charts, subtitle, sheet, brand,
-            out_path, overwrite,
+            out_path, overwrite, messages,
         )  # fmt: skip
         return render_output(result)
 

@@ -11,8 +11,9 @@ from __future__ import annotations
 import datetime as dt
 import re
 import statistics
+import unicodedata
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from slim_sheet.core.errors import ErrorCode, SlimError
@@ -37,9 +38,21 @@ _PERIOD = re.compile(
 )
 
 
+# Vietnamese headers (and their common abbreviations) mapped onto the English words above
+_VI_WORDS = {"tăng trưởng": "growth", "tt": "growth", "thay đổi": "change", "biến động": "change",
+             "tỷ trọng": "share", "tỉ trọng": "share", "tỷ lệ": "rate", "tỉ lệ": "rate",
+             "biên": "margin", "doanh thu": "revenue", "dt": "revenue", "lợi nhuận": "profit",
+             "ln": "profit", "vốn hóa": "cap", "vốn hoá": "cap", "chi phí": "cost", "giá": "price",
+             "tổng": "total", "số lượng": "quantity", "số": "number", "niêm yết": "listed",
+             "năm": "year", "mã": "code"}  # fmt: skip
+_VI_PATTERN = re.compile(
+    r"(?<!\w)(" + "|".join(sorted(map(re.escape, _VI_WORDS), key=len, reverse=True)) + r")(?!\w)"
+)
+
+
 def _words(header: str) -> set[str]:
-    text = header.lower()
-    words = set(_WORD.findall(text))
+    text = unicodedata.normalize("NFC", header.lower())
+    words = set(_WORD.findall(text)) | {_VI_WORDS[m] for m in _VI_PATTERN.findall(text)}
     return words | ({"%"} if "%" in text else set())
 
 
@@ -58,6 +71,9 @@ def _from_header(words: set[str]) -> tuple[str | None, str]:
     if words & _AMOUNT_WORDS:
         return "number1", "formula column, amount header"
     return None, "formula column, header gives no number type"
+
+
+MIN_DECIMAL = 0.01  # values below this need more than two decimals: keep their format
 
 
 def _numbers(values: Sequence[object]) -> list[float]:
@@ -93,14 +109,23 @@ def infer_format(header: str, values: Sequence[object]) -> tuple[str | None, str
         return "number1", "rate header but values look like points, not fractions"
     if words & _MULTIPLE_WORDS:
         return "multiple", "multiple header"
-    if whole or biggest >= 1000:
-        return "integer", "whole or large numbers"
-    return ("number2" if biggest < 10 else "number1"), "small decimals"
+    if whole:
+        return "integer", "whole numbers"
+    smallest = min((abs(n) for n in nums if n), default=0.0)
+    if smallest and smallest < MIN_DECIMAL:
+        return None, "tiny decimals: two places would show 0.00"
+    if biggest >= 1000 and smallest >= 100:
+        return "integer", "large numbers"
+    if all(abs(n * 10 - round(n * 10)) < 1e-6 for n in nums):
+        return "number1", "one-decimal values"  # 743.1 and 0.7: the data's own precision
+    if typical < 10 or smallest < 1:  # FX rates: 25,054 next to 0.92 keep their decimals
+        return "number2", "small decimals"
+    return "number1", "decimals"
 
 
 # --- charts -------------------------------------------------------------------------------
 
-INTENTS = ("auto", "compare", "rank", "trend", "share", "relationship")
+INTENTS = ("auto", "compare", "rank", "trend", "share", "relationship", "table")
 MAX_BAR_LABEL = 12  # longer category labels read better on horizontal bars
 MAX_SLICES = 5
 
@@ -166,6 +191,8 @@ class KpiSpec:
     column2: str = ""  # denominator for ratio
     formula: str = ""
     fmt: str = ""  # named format, or '' to infer
+    vs: str = ""  # comparison column ('A/B' for a ratio): the note shows the change
+    vs_label: str = "prior"  # what the change is against, e.g. 'FY2024' or 'budget'
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,8 +205,48 @@ class ChartSpec:
 
 
 def parse_kpi(item: str) -> KpiSpec:
-    """'Label=agg:Column|fmt', 'Label=ratio:A/B', 'Label==SUM(...)', 'Orders=count', 'Revenue'."""
-    body, _, fmt = item.partition("|")
+    """'Label=agg:Column|fmt|vs:Prior column:label', 'Label=ratio:A/B|vs:C/D',
+    'Label==SUM(...)', 'Orders=count', 'Revenue'."""
+    spec = _parse_kpi_body(item)
+    segments = [s.strip().lower() for s in item.split("|")[1:]]
+    compared = sum(1 for s in segments if s.startswith("vs:"))
+    if compared > 1 or len(segments) - compared > 1:
+        raise SlimError(
+            ErrorCode.BAD_ARGUMENT,
+            f"KPI '{item}': only one format and one 'vs:' comparison may follow '|'",
+            hint="e.g. 'Profit=sum:Profit 2025|number1|vs:Profit 2024:2024'",
+        )
+    vs = _comparison(item, spec)
+    return replace(spec, vs=vs[0], vs_label=vs[1]) if vs[0] else spec
+
+
+def _comparison(item: str, spec: KpiSpec) -> tuple[str, str]:
+    """The 'vs:Column[:label]' segment -> (column, label); ('', 'prior') when absent."""
+    segments = [s.strip() for s in item.split("|")[1:]]
+    found = [s[3:].strip() for s in segments if s.lower().startswith("vs:")]
+    if not found:
+        return "", "prior"
+    column, _, label = found[0].partition(":")
+    column, label = column.strip(), label.strip() or "prior"
+    if spec.agg in ("formula", "count") or not column:
+        raise SlimError(
+            ErrorCode.BAD_ARGUMENT,
+            f"KPI '{item}': 'vs:' needs a column and works with sum/avg/min/max/ratio",
+            hint="e.g. 'Revenue=sum:Revenue 2025|vs:Revenue 2024:2024'",
+        )
+    if (spec.agg == "ratio") != ("/" in column):
+        raise SlimError(
+            ErrorCode.BAD_ARGUMENT,
+            f"KPI '{item}': a ratio compares with another ratio 'A/B', other KPIs with a column",
+            hint="e.g. 'Margin=ratio:Profit 2025/Revenue 2025|vs:Profit 2024/Revenue 2024'",
+        )
+    return column, label
+
+
+def _parse_kpi_body(item: str) -> KpiSpec:
+    parts = item.split("|")
+    body = parts[0]
+    fmt = next((p for p in parts[1:] if not p.strip().lower().startswith("vs:")), "")
     label, eq, rest = body.partition("=")
     label, rest, fmt = label.strip(), rest.strip(), fmt.strip().lower()
     if not label:
@@ -291,8 +358,18 @@ def _time_key(category: object) -> tuple[int, Any]:
     return (1, category)
 
 
-def insight_title(intent: str, label: str, points: Sequence[tuple[object, float]]) -> str:
-    """A title that states the message ('North leads Total with 41% of the total')."""
+_RATE_KEYS = ("percent", "growth", "multiple")
+
+
+def insight_title(
+    intent: str,
+    label: str,
+    points: Sequence[tuple[object, float]],
+    agg: str = "sum",
+    key: str | None = None,
+) -> str:
+    """A title that states the message ('North leads Total with 41% of the total').
+    Averages, extremes and rates are not parts of a whole: those name the leader's value."""
     if not points:
         return label
     if intent == "trend" and len(points) >= 2:
@@ -304,6 +381,18 @@ def insight_title(intent: str, label: str, points: Sequence[tuple[object, float]
         return f"{label} from {first[0]} to {last[0]}"
     top = max(points, key=lambda p: p[1])
     total = sum(p[1] for p in points)
-    if total > 0 and all(p[1] >= 0 for p in points):
+    additive = agg in ("sum", "count") and key not in _RATE_KEYS
+    if additive and total > 0 and all(p[1] >= 0 for p in points):
         return f"{top[0]} leads {label} with {top[1] / total:.0%} of the total"
-    return f"{top[0]} has the highest {label}"
+    return f"{top[0]} has the highest {label} ({_short(top[1], key)})"
+
+
+def _short(value: float, key: str | None) -> str:
+    """A number for a title: +34.5% for growth, 20.4% for a rate, 1,986 or 3.2 otherwise."""
+    if key == "growth":
+        return f"{value:+.1%}"
+    if key == "percent":
+        return f"{value:.1%}"
+    if key == "multiple":
+        return f"{value:.1f}x"
+    return f"{value:,.0f}" if abs(value) >= 100 else f"{value:,.1f}"

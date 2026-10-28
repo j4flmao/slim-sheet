@@ -9,22 +9,28 @@ aggregated once into a '<sheet> data' sheet that the charts read.
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
 from typing import Any
 
 from openpyxl.styles import PatternFill
-from openpyxl.worksheet.properties import PageSetupProperties
 
 from slim_sheet.adapters.brand import brand_for, resolve_brand
 from slim_sheet.adapters.writers.chart_refs import build_chart
-from slim_sheet.adapters.writers.chart_style import style_chart
+from slim_sheet.adapters.writers.chart_style import ChartText, style_chart
+from slim_sheet.adapters.writers.print_setup import print_dashboard
 from slim_sheet.adapters.writers.theme import apply_brand, style_cell
 from slim_sheet.config import Settings
 from slim_sheet.core.a1 import index_to_col
-from slim_sheet.core.design import FORMAT_NAMES, Brand, formats, role_style, scaled_format
+from slim_sheet.core.design import (
+    CONTEXT_GREY,
+    FORMAT_NAMES,
+    Brand,
+    formats,
+    role_style,
+    scaled_format,
+)
 from slim_sheet.core.errors import ErrorCode, SlimError
 from slim_sheet.core.guard import check_formula
-from slim_sheet.core.models import OutputResult
+from slim_sheet.core.models import CellRange, OutputResult
 from slim_sheet.core.report_spec import (
     ChartSpec,
     KpiSpec,
@@ -37,43 +43,25 @@ from slim_sheet.core.report_spec import (
     parse_kpi,
     reduce_values,
 )
-from slim_sheet.core.shift import quote_sheet
-from slim_sheet.services.design import TableBlock, column_values, find_table, style_block
+from slim_sheet.services.design import find_table, style_block
 from slim_sheet.services.editing import Change, edit_workbook, get_sheet
+from slim_sheet.services.report_blocks import (
+    ReportData,
+    check_messages,
+    colour_comparison,
+    comparison_formula,
+    describe_change,
+    kpi_comparison,
+    table_slot,
+    write_messages,
+)
 
 MAX_KPIS, MAX_CHARTS = 6, 6
 MAX_BARS = 12  # longer rankings keep the top 11 and fold the rest into "Other"
 TILE_WIDTH, GUTTER, MARGIN = 22, 2, 2
 CHART_WIDTH_CM, CHART_HEIGHT_CM, CHART_ROWS, CHART_TOP = 13.6, 7.6, 16, 8
+LAST_GRID_COL = 13  # M: one margin column right of the six tiles
 ROW_HEIGHTS = {1: 32, 2: 18, 3: 8, 4: 20, 5: 36, 6: 18, 7: 12}
-
-
-@dataclass(frozen=True, slots=True)
-class _Data:
-    """The source table as the report sees it."""
-
-    ws: Any
-    block: TableBlock
-    first: int  # 1-based first and last data rows
-    last: int
-
-    def col(self, name: str) -> int:
-        wanted = name.strip().casefold()
-        for offset, header in enumerate(self.block.headers):
-            if header.casefold() == wanted:
-                return self.block.rng.left + offset
-        raise SlimError(
-            ErrorCode.BAD_ARGUMENT,
-            f"No column '{name}' in {self.ws.title}",
-            hint=f"Columns: {', '.join(h for h in self.block.headers if h)}",
-        )
-
-    def ref(self, col: int) -> str:
-        letter = index_to_col(col)
-        return f"{quote_sheet(self.ws.title)}!${letter}${self.first}:${letter}${self.last}"
-
-    def values(self, col: int) -> list[object]:
-        return column_values(self.ws, self.block, col)
 
 
 def build_report(
@@ -88,10 +76,13 @@ def build_report(
     brand: str | None = None,
     out_path: str | None = None,
     overwrite: bool = False,
+    messages: list[str] | None = None,
 ) -> OutputResult:
+    """`messages`: up to 5 key findings shown under the KPI row (the report states them)."""
     kpi_specs = [parse_kpi(k) for k in kpis or []]
     chart_specs = [parse_chart(c) for c in charts or []]
     _check_counts(kpi_specs, chart_specs, sheet, data_sheet)
+    said = check_messages(messages or [])
     chosen, explicit = resolve_brand(brand, settings)
 
     def mutate(wb: Any) -> Change:
@@ -99,18 +90,23 @@ def build_report(
         data = _source(wb, data_sheet)
         style_block(data.ws, data.block, "data", look, "auto")
         board = _fresh_sheet(wb, sheet, 0)
-        helper = _fresh_sheet(wb, f"{sheet} data"[:31], 1)
+        helper = _fresh_sheet(wb, f"{sheet} data"[:31], None)
+        helper.sheet_properties.tabColor = f"FF{CONTEXT_GREY}"
         _layout(board, look, title, subtitle or _default_subtitle(data))
         lines = [_tile(board, i, spec, data, look) for i, spec in enumerate(kpi_specs)]
+        top = write_messages(board, said, CHART_TOP, look, "Key messages") if said else CHART_TOP
         row = 1
         for i, spec in enumerate(chart_specs):
-            line, row = _chart(board, helper, i, spec, data, look, row)
+            line, row = _slot(board, helper, i, spec, data, look, row, top)
             lines.append(line)
-        _footer(board, look, data, len(chart_specs))
+        last = _footer(board, look, data, len(chart_specs), top, helper.title)
+        print_dashboard(board, CellRange(0, 0, last - 1, LAST_GRID_COL - 1), title)
         apply_brand(wb, look, force=explicit)
         wb.active = 0
         rows = data.last - data.first + 1
         head = f"built {board.title} (brand {look.name}) from {data.ws.title} ({rows} rows)"
+        if said:
+            head += f"; {len(said)} key message(s)"
         return Change(head + "".join(f"\n- {line}" for line in lines))
 
     return edit_workbook(path, settings, f"build_report {sheet}", mutate, out_path, overwrite)
@@ -137,7 +133,7 @@ def _check_counts(kpis: list[KpiSpec], charts: list[ChartSpec], sheet: str, data
         )
 
 
-def _source(wb: Any, name: str) -> _Data:
+def _source(wb: Any, name: str) -> ReportData:
     ws = get_sheet(wb, name)
     block = find_table(ws, None, None)
     first = block.rng.top + 2
@@ -145,17 +141,17 @@ def _source(wb: Any, name: str) -> _Data:
     last = block.total_row if block.total_row is not None else block.rng.bottom + 1
     if last < first:
         raise SlimError(ErrorCode.BAD_ARGUMENT, f"Sheet '{ws.title}' has a header but no data rows")
-    return _Data(ws, block, first, last)
+    return ReportData(ws, block, first, last)
 
 
-def _fresh_sheet(wb: Any, name: str, index: int) -> Any:
+def _fresh_sheet(wb: Any, name: str, index: int | None) -> Any:
     for title in wb.sheetnames:
         if title.casefold() == name.casefold():
             wb.remove(wb[title])
     return wb.create_sheet(name, index)
 
 
-def _default_subtitle(data: _Data) -> str:
+def _default_subtitle(data: ReportData) -> str:
     today = dt.date.today().isoformat()
     return f"Source: {data.ws.title} ({data.last - data.first + 1} rows) · Built {today}"
 
@@ -173,18 +169,19 @@ def _layout(ws: Any, brand: Brand, title: str, subtitle: str) -> None:
     view = ws.sheet_view
     view.showGridLines, view.zoomScale = False, 100
     ws.sheet_properties.tabColor = f"FF{brand.primary}"
-    ws.page_setup.orientation = "landscape"
-    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
-    ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 1  # one screen, one page
 
 
 # --- KPI tiles ----------------------------------------------------------------------------
 
 
-def _tile(ws: Any, index: int, spec: KpiSpec, data: _Data, brand: Brand) -> str:
+def _tile(ws: Any, index: int, spec: KpiSpec, data: ReportData, brand: Brand) -> str:
     formula, value, note, key = _kpi_parts(spec, data)
     fmt = formats(brand)[scaled_format(key, value or 0.0)]
     col = index_to_col(1 + 2 * index)
+    value_cell = f"${col}$5"
+    comparison = kpi_comparison(spec, data) if spec.vs else None
+    if comparison:
+        note = comparison_formula(comparison, value_cell)
     fill = PatternFill("solid", fgColor=f"FF{brand.band}")
     for row, content, role in (
         (4, spec.label, "kpi_label"),
@@ -195,8 +192,11 @@ def _tile(ws: Any, index: int, spec: KpiSpec, data: _Data, brand: Brand) -> str:
         cell.value = content
         style_cell(cell, role_style(role, brand), brand, fmt if row == 5 else None)
         cell.fill = fill
+    if comparison:
+        colour_comparison(ws, f"{col}6", value_cell, comparison, spec, brand)
     shown = "computed in Excel" if value is None else _plain(value)
-    return f"KPI {spec.label} = {shown} ({formula}) at {col}5"
+    change = describe_change(value, comparison) if comparison else ""
+    return f"KPI {spec.label} = {shown}{change} ({formula}) at {col}5"
 
 
 def _plain(value: float) -> str:
@@ -206,7 +206,7 @@ def _plain(value: float) -> str:
     return f"{value:,.4f}".rstrip("0").rstrip(".") if abs(value) < 1 else f"{value:,.1f}"
 
 
-def _kpi_parts(spec: KpiSpec, data: _Data) -> tuple[str, float | None, str, str]:
+def _kpi_parts(spec: KpiSpec, data: ReportData) -> tuple[str, float | None, str, str]:
     """-> (formula, value now, description, format key)."""
     if spec.agg == "formula":
         check_formula(spec.formula, f"KPI {spec.label}")
@@ -255,8 +255,26 @@ def _fmt_key(requested: str, fallback: str) -> str:
 # --- charts -------------------------------------------------------------------------------
 
 
+def _slot(
+    board: Any,
+    helper: Any,
+    index: int,
+    spec: ChartSpec,
+    data: ReportData,
+    brand: Brand,
+    row: int,
+    top: int,
+) -> tuple[str, int]:
+    """One grid cell: a ranked table for 'table:' items, otherwise a chart."""
+    left, first = (2 if index % 2 == 0 else 8), top + (index // 2) * CHART_ROWS
+    if spec.intent == "table":
+        return table_slot(board, spec, data, brand, left, first), row
+    anchor = f"{index_to_col(left - 1)}{first}"
+    return _chart(board, helper, anchor, spec, data, brand, row)
+
+
 def _chart(
-    board: Any, helper: Any, index: int, spec: ChartSpec, data: _Data, brand: Brand, row: int
+    board: Any, helper: Any, anchor: str, spec: ChartSpec, data: ReportData, brand: Brand, row: int
 ) -> tuple[str, int]:
     """Aggregate, write the block on the helper sheet, add a styled chart. -> (line, next row)."""
     category = data.col(spec.category)
@@ -272,17 +290,26 @@ def _chart(
         spec.intent if spec.intent != "auto" else ("trend" if choice_.sort == "asc" else "compare")
     )
     default = f"{label} vs {spec.category}" if intent == "relationship" else None
-    title = spec.title or default or insight_title(intent, label, points)
     key = "integer" if spec.agg == "count" else infer_format(label, [p[1] for p in points])[0]
+    title = spec.title or default or insight_title(intent, label, points, spec.agg, key)
     fmt = formats(brand)[
         scaled_format(key or "integer", max((abs(p[1]) for p in points), default=0))
     ]
     address = _write_block(helper, row, title, (spec.category, label), points, fmt, brand)
     chart = build_chart(choice_.kind, helper, address)
     highlight = 0 if intent in ("compare", "rank") and choice_.kind in ("bar", "column") else None
-    style_chart(chart, choice_.kind, brand, title=title, highlight=highlight, value_format=fmt)
+    scatter = choice_.kind == "scatter"
+    text = ChartText(
+        title=title,
+        highlight=highlight,
+        value_format=fmt,
+        x_format=_x_format(spec.category, points, brand) if scatter else None,
+        x_title=spec.category if scatter else None,
+        y_title=label if scatter else None,
+        values=tuple(p[1] for p in points),
+    )
+    style_chart(chart, choice_.kind, brand, text)
     chart.width, chart.height = CHART_WIDTH_CM, CHART_HEIGHT_CM
-    anchor = f"{'B' if index % 2 == 0 else 'H'}{CHART_TOP + (index // 2) * CHART_ROWS}"
     board.add_chart(chart, anchor)
     line = (
         f"chart {anchor}: {choice_.kind} ({choice_.reason}), {len(points)} points, title '{title}'"
@@ -290,12 +317,17 @@ def _chart(
     return line, row + len(points) + 4
 
 
-def _scatter_points(data: _Data, x_col: int, y_col: int) -> list[tuple[object, float]]:
+def _scatter_points(data: ReportData, x_col: int, y_col: int) -> list[tuple[object, float]]:
     points: list[tuple[object, float]] = []
     for x, y in zip(data.values(x_col), data.values(y_col), strict=True):
         if isinstance(x, int | float) and isinstance(y, int | float) and not isinstance(y, bool):
             points.append((x, float(y)))
     return points[:500]
+
+
+def _x_format(header: str, points: list[tuple[object, float]], brand: Brand) -> str | None:
+    key = infer_format(header, [p[0] for p in points])[0]
+    return formats(brand)[key] if key and key not in ("date", "year", "text") else None
 
 
 def _fold(points: list[tuple[object, float]], kind: str, agg: str) -> list[tuple[object, float]]:
@@ -326,12 +358,14 @@ def _write_block(
     return f"A{row + 1}:B{row + 1 + len(points)}"
 
 
-def _footer(ws: Any, brand: Brand, data: _Data, n_charts: int) -> None:
-    row = CHART_TOP + ((n_charts + 1) // 2) * CHART_ROWS + (1 if n_charts else 0)
+def _footer(ws: Any, brand: Brand, data: ReportData, n_slots: int, top: int, helper: str) -> int:
+    """Source line under the grid; -> its row (the last row of the printed page)."""
+    row = top + ((n_slots + 1) // 2) * CHART_ROWS + (1 if n_slots else 0)
     text = (
         f"Source: {data.ws.title}!{index_to_col(data.block.rng.left)}{data.first - 1}:"
-        f"{index_to_col(data.block.rng.right)}{data.last}. KPI tiles are live formulas; chart "
-        f"numbers are in '{ws.title} data'. Made with slim-sheet."
+        f"{index_to_col(data.block.rng.right)}{data.last} ({data.last - data.first + 1} rows). "
+        f"KPI tiles and tables are live formulas; chart figures are on the '{helper}' sheet."
     )
     ws.cell(row=row, column=2, value=text)
     style_cell(ws.cell(row=row, column=2), role_style("note", brand), brand)
+    return row

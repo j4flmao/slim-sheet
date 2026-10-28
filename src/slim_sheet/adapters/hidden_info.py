@@ -18,6 +18,7 @@ from slim_sheet.adapters.writers.sparklines import sheet_parts
 log = logging.getLogger(__name__)
 
 CHUNK = 1 << 20
+_SHAPE = re.compile(r"<(?:\w+:)?(?:sp|cxnSp|grpSp)\b")
 MAX_AUTHOR_CHARS = 60
 _VERY_HIDDEN = re.compile(r'<sheet\b[^>]*\bname="([^"]*)"[^>]*\bstate="veryHidden"')
 _HIDDEN_ROW = re.compile(rb'<row\b[^>]*\bhidden="(?:1|true)"')
@@ -100,6 +101,11 @@ def _part_findings(archive: zipfile.ZipFile, names: set[str]) -> Iterator[str]:
     threads = [n for n in names if n.startswith("xl/threadedComments/")]
     if notes or threads:
         yield f"notes/comments on {len(notes) or len(threads)} sheet(s) (describe_cell shows them)"
+    shapes = sum(len(_SHAPE.findall(_text(archive, n))) for n in names
+                 if n.startswith("xl/drawings/drawing") and n.endswith(".xml"))  # fmt: skip
+    if shapes:
+        yield (f"{shapes} shape(s) such as buttons or text boxes (an Office Scripts or macro "
+               "button is a shape; edits keep them)")  # fmt: skip
     embedded = [n for n in names if n.startswith("xl/embeddings/")]
     if embedded:
         yield f"{len(embedded)} embedded object(s) (OLE/package files inside the workbook)"

@@ -13,6 +13,7 @@ from typing import Any
 from openpyxl.styles import PatternFill
 
 from slim_sheet.adapters.brand import brand_for, resolve_brand
+from slim_sheet.adapters.writers.print_setup import print_table
 from slim_sheet.adapters.writers.theme import apply_brand, body_font, style_cell
 from slim_sheet.adapters.writers.xlsx_writer import freeze_panes
 from slim_sheet.config import Settings
@@ -23,10 +24,11 @@ from slim_sheet.core.errors import ErrorCode, SlimError
 from slim_sheet.core.models import CellRange, OutputResult
 from slim_sheet.core.report_spec import infer_format
 from slim_sheet.core.styles import choice
+from slim_sheet.services.chart_restyle import restyle_charts
 from slim_sheet.services.editing import Change, edit_workbook, get_sheet
 from slim_sheet.services.styling import MAX_STYLED_CELLS, autofit_columns
 
-PRESETS = ("report", "data", "finance", "striped", "minimal")
+PRESETS = ("report", "data", "finance", "striped", "minimal", "charts")
 _TOTAL_WORDS = ("total", "grand total", "sum", "tổng")
 
 
@@ -105,8 +107,11 @@ def style_sheet(
     def mutate(wb: Any) -> Change:
         look = brand_for(wb, chosen, explicit)
         ws = get_sheet(wb, sheet)
+        if kind == "charts":  # charts only: the cells keep their look
+            restyled = restyle_charts(wb, ws, look) or ["no charts on this sheet"]
+            return Change(f"{ws.title} (brand {look.name}): " + "; ".join(restyled))
         block = find_table(ws, range, total_row)
-        notes = style_block(ws, block, kind, look, fmt_mode)
+        notes = style_block(ws, block, kind, look, fmt_mode) + restyle_charts(wb, ws, look)
         themed = apply_brand(wb, look, force=explicit)
         where = f"{ws.title}!{a1_range(block.rng)}"
         total = f", total row {block.total_row + 1}" if block.total_row is not None else ""
@@ -128,7 +133,8 @@ def style_block(ws: Any, block: TableBlock, preset: str, brand: Brand, fmt_mode:
             )
     autofit_columns(ws, block.rng)
     _sheet_view(ws, block, brand, preset)
-    return notes or ["no number columns"]
+    printing = print_table(ws, block.rng, ws.title)
+    return (notes or ["no number columns"]) + printing
 
 
 def _apply_formats(
@@ -179,8 +185,8 @@ def _sheet_view(ws: Any, block: TableBlock, brand: Brand, preset: str) -> None:
     view.zoomScale = 100
     if preset in ("report", "finance", "striped"):
         view.showGridLines = False
-    if brand.profile != "gov" and preset != "minimal":
-        freeze_panes(ws, f"A{block.rng.top + 2}")  # rows only; never freeze columns left of it
+    if brand.profile != "gov" and preset != "minimal" and ws.freeze_panes is None:
+        freeze_panes(ws, f"A{block.rng.top + 2}")  # rows only; an existing freeze stays
     if preset == "data" and not ws.tables:
         last = block.total_row - 1 if block.total_row is not None else block.rng.bottom
         ws.auto_filter.ref = a1_range(

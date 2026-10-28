@@ -13,14 +13,15 @@ from typing import Any
 
 from slim_sheet.adapters.brand import brand_for, resolve_brand
 from slim_sheet.adapters.writers.chart_refs import anchor_cell, build_chart
-from slim_sheet.adapters.writers.chart_style import style_chart
+from slim_sheet.adapters.writers.chart_style import ChartText, style_chart
 from slim_sheet.adapters.writers.sparklines import line_group
 from slim_sheet.config import Settings
 from slim_sheet.core.a1 import index_to_col, parse_range
+from slim_sheet.core.design import Brand, formats
 from slim_sheet.core.errors import ErrorCode, SlimError
 from slim_sheet.core.models import CellRange, OutputResult
 from slim_sheet.core.refs import split_sheet
-from slim_sheet.core.report_spec import choose_chart
+from slim_sheet.core.report_spec import choose_chart, infer_format
 from slim_sheet.core.shift import quote_sheet
 from slim_sheet.core.styles import choice
 from slim_sheet.services.editing import Change, edit_workbook, get_sheet
@@ -70,10 +71,18 @@ def add_chart(
         chosen, why = _resolve_kind(kind, source, rng, categories)
         place = anchor or f"{index_to_col(rng.right + 2)}{rng.top + 1}"
         chart = build_chart(chosen, source, address)
-        mark = _highlight_index(categories, highlight)
-        style_chart(chart, chosen, look, title=title, highlight=mark)
-        if chosen not in ("pie", "doughnut"):
-            chart.x_axis.title, chart.y_axis.title = x_title, y_title
+        _check_series(source, rng)
+        series_values = _column(source, rng, rng.left + 1)
+        text = ChartText(
+            title=title,
+            highlight=_highlight_index(categories, highlight),
+            value_format=_number_format(source, rng, rng.left + 1, look),
+            x_format=_number_format(source, rng, rng.left, look) if chosen == "scatter" else None,
+            x_title=x_title,
+            y_title=y_title,
+            values=tuple(_numbers(series_values)),
+        )
+        style_chart(chart, chosen, look, text)
         removed = _remove_charts_at(host, place) if replace else 0
         host.add_chart(chart, place)
         series = 1 if chosen in ("pie", "doughnut") else rng.n_cols - 1
@@ -95,13 +104,51 @@ def _column(ws: Any, rng: CellRange, col: int) -> list[object]:
     return [ws.cell(row=r + 1, column=col + 1).value for r in range(rng.top + 1, rng.bottom + 1)]
 
 
+def _check_series(ws: Any, rng: CellRange) -> None:
+    """A text column plotted as a series draws nothing but a legend entry: refuse it."""
+    for col in range(rng.left + 1, rng.right + 1):
+        values = [v for v in _column(ws, rng, col) if v not in (None, "")]
+        plottable = [
+            v
+            for v in values
+            if (isinstance(v, int | float) and not isinstance(v, bool))
+            or (isinstance(v, str) and v.startswith("="))
+        ]
+        if values and not plottable:
+            header = ws.cell(row=rng.top + 1, column=col + 1).value
+            raise SlimError(
+                ErrorCode.BAD_ARGUMENT,
+                f"Column {index_to_col(col)} ('{header}') holds text, not numbers to plot",
+                hint="The first column holds the categories, every other column one numeric "
+                "series: move or leave out the text column (e.g. a range starting one column "
+                "to the right).",
+            )
+
+
+def _numbers(values: list[object]) -> list[float]:
+    return [
+        float(v) if isinstance(v, int | float) and not isinstance(v, bool) else 0.0 for v in values
+    ]
+
+
+def _number_format(ws: Any, rng: CellRange, col: int, brand: Brand) -> str | None:
+    """The column's own number format, else one inferred from its header and values, so
+    axes and labels show 27.2% and 1,810 rather than 0.272 and 1810.0012."""
+    for row in range(rng.top + 1, rng.bottom + 1):
+        cell = ws.cell(row=row + 1, column=col + 1)
+        if isinstance(cell.value, int | float) and not isinstance(cell.value, bool):
+            if cell.number_format and cell.number_format != "General":
+                return str(cell.number_format)
+            break
+    header = str(ws.cell(row=rng.top + 1, column=col + 1).value or "")
+    key, _why = infer_format(header, _column(ws, rng, col))
+    return formats(brand)[key] if key and key not in ("date", "year", "text") else None
+
+
 def _resolve_kind(kind: str, ws: Any, rng: CellRange, categories: list[object]) -> tuple[str, str]:
     if kind != "auto":
         return kind, ""
-    values = [
-        float(v) if isinstance(v, int | float) and not isinstance(v, bool) else 0.0
-        for v in _column(ws, rng, rng.left + 1)
-    ]
+    values = _numbers(_column(ws, rng, rng.left + 1))
     picked = choose_chart("auto", categories, values)
     return picked.kind, picked.reason
 
