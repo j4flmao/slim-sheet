@@ -12,7 +12,9 @@ company-grade output without writing a style guide into every prompt.
 Use the slim-sheet tools only. Open <path>, find the data sheet with overview, then call
 build_report once: title "<subject> <period>", 3–6 KPIs and 2–4 charts that answer "<question>".
 KPI items look like "Revenue=sum:Revenue", "Margin=ratio:Profit/Revenue", "Orders=count".
-Chart items look like "trend:Month:Revenue", "rank:Region:Revenue", "share:Product:Units".
+Chart items look like "trend:Month:Revenue", "rank:Region:Revenue", "share:Product:Units",
+"table:Customer:Revenue". If the data has a prior period, add "|vs:<prior column>:<label>" to
+each KPI. Pass messages=[...]: the 3 findings a client must remember, each with its number.
 Then tell me each KPI value and each chart title from the tool reply.
 ```
 
@@ -40,7 +42,10 @@ style_sheet(..., brand=...) on every table, and rebuild the dashboard with build
 | KPI ratio | `Label=ratio:Numerator/Denominator` | `Margin=ratio:Profit/Revenue` (percent by default) |
 | KPI count | `Label=count` or `Label=count:Column` | `Orders=count`, `Customers=count:CustomerID` |
 | KPI formula | `Label==<Excel formula>` | `Target gap==Targets!B2-SUM(Sales!E2:E500)` |
+| KPI vs prior | `...\|vs:Column[:label]` (a ratio: `vs:A/B`) | `Revenue=sum:Rev 2025\|vs:Rev 2024:2024`, `Margin=ratio:NI/Rev\|vs:NI 24/Rev 24:FY24` |
 | Chart | `intent:Category:Value[:agg][:Title]` | `trend:Month:Revenue`, `rank:Region:count`, `share:Product:Units:sum:Mix by product` |
+| Ranked table | `table:Category:Value[:agg][:Title]` | `table:Customer:Revenue` (top 10, live formulas, share and total) |
+| Key messages | `messages=[...]` (up to 5 sentences) | `messages=['North grew 31%, twice the average.']` |
 
 Aggregates: `sum` (default), `avg`, `count`, `min`, `max`. Formats: `integer, number1, number2, currency,
 percent, growth, multiple, k, m, bn, date, year` — leave them out and the server infers one.
@@ -57,7 +62,12 @@ Chart intents (what message the chart carries — the server picks the chart typ
 | `auto` | not sure | trend if the categories are periods, otherwise compare |
 
 Every chart gets a title that states its message ("Revenue rose 58% from Jan to Dec", "North leads
-Revenue with 35% of the total") unless you give one.
+Revenue with 35% of the total") unless you give one. Averages and rates are never called a share of a
+total: they name the leader and its value ("Banks have the highest Margin (34.7%)").
+
+A `vs:` comparison turns the tile's note into a live variance (`+17.4% vs FY2024`; a ratio changes in
+points: `+1.8 pts vs FY2024`), green when it moved the good way and red otherwise. For costs, expenses,
+churn, debt or losses going up is the bad way.
 
 ## 3. Company brand (set once, used by every agent)
 
@@ -88,15 +98,31 @@ workbook as a real Office theme, so Excel's own table and chart styles follow it
 
 ## 4. Rules the server applies (so prompts don't have to)
 
-- **Layout** (build_report): title band → KPI row (up to 6 tiles: label, big value, what it measures)
-  → 2-column chart grid → source footer; gridlines off; fits one landscape page; chart numbers on a
-  `<sheet> data` sheet; rebuilding replaces the sheets.
+- **Layout** (build_report): title band → KPI row (up to 6 tiles: label, big value, change vs prior or
+  what it measures) → key messages → 2-column grid of charts and ranked tables → source footer;
+  gridlines off; one landscape page with the title and "Page 1 of 1" in the footer; chart numbers on a
+  grey-tabbed `<sheet> data` sheet at the end; no tool branding; rebuilding replaces the sheets.
 - **Tables** (style_sheet): one wrapped header row, numeric headers aligned with their numbers, brand
-  body font, totals with a rule, widths from the *formatted* values (no `#####`), header frozen.
+  body font, totals with a rule, widths from the *formatted* values (no `#####`), header frozen unless
+  the sheet already has a freeze.
+- **Print** (style_sheet, build_report): fit to the page width with the header row repeated, landscape
+  past ~110 characters of columns, "Page N of M" footers. Tables wider than ~300 characters print
+  across pages at full size with the first column repeated (shrunk onto one page they are unreadable).
+  A print area or fit the author set is kept.
 - **Numbers**: thousands separators, one decimal for rates (`0.0%`), signed growth (`+3.2%`), big
-  headline numbers scaled (`7.1m`); ids, codes and years are never given separators.
-- **Charts**: no 3-D, no border, no rounded corners, no gridlines on bars, legend only with several
-  series, data labels on short bar charts, one accent colour with grey context, axes always visible.
+  headline numbers scaled (`7.1m`); ids, codes and years are never given separators. Decimals follow
+  the data: one-decimal data keeps one, FX-like columns (25,054 next to 0.92) keep two, values under
+  0.01 keep their own format. Vietnamese headers (`Tăng trưởng`, `Biên LN`, `Tỷ trọng`, `DT`, `LN`,
+  `Vốn hóa`...) are read like their English equivalents.
+- **Charts**: a left-aligned message title; no 3-D, no border, no rounded corners, no gridlines on bars;
+  legend only with several series; axes always visible, category labels kept clear of negative bars;
+  numbers in the source cells' format (labels and axes, axis ticks without needless decimals); short
+  bar charts carry labels instead of a value axis, the longest bars inside their end; one accent colour
+  with grey context; negative bars solid; a single trend line labels its latest value; pie slices under
+  3% unlabelled; doughnuts get a legend and contrasting labels on the ring. `None`/`null` titles are
+  never printed, and a text column given as a series is refused.
+- **Existing charts** (style_sheet, `preset="charts"` for chart-only sheets): charts made by Excel,
+  another tool or an older slim-sheet get the same rules in place: same data, anchor and title.
 - **Colour means something**: one accent; green/red only for good/bad; finance inputs blue.
 
 ## 5. When you build by hand (full tier)

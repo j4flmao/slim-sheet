@@ -1139,8 +1139,10 @@ def _views_xml(path: Path, sheet_index: int) -> str:
     return xml[xml.index("<sheetViews>") : xml.index("</sheetViews>")]
 
 
-def test_refreezing_leaves_one_valid_selection(tmp_path: Path, settings: Settings) -> None:
-    # Arrange: frozen on both axes first (E2), then a style call freezes rows only (A2)
+def test_styling_keeps_the_authors_freeze_with_valid_selections(
+    tmp_path: Path, settings: Settings
+) -> None:
+    # Arrange: frozen on both axes first (B2), then a style call that would freeze rows only
     _numbers_book(tmp_path)
     h = Handlers(settings)
     h.sheet_layout("n.xlsx", "data", freeze="B2")
@@ -1148,11 +1150,11 @@ def test_refreezing_leaves_one_valid_selection(tmp_path: Path, settings: Setting
     # Act
     h.style_sheet("n.slim.xlsx", "data", preset="data", overwrite=True)
 
-    # Assert: Excel refuses duplicate panes and panes the split does not have
+    # Assert: the author's freeze stays; Excel refuses duplicate panes
     views = _views_xml(tmp_path / "n.slim.xlsx", 1)
     panes = re.findall(r'<selection [^>]*pane="([^"]*)"', views)
-    assert 'ySplit="1"' in views and "xSplit" not in views
-    assert panes == ["bottomLeft"]
+    assert 'ySplit="1"' in views and 'xSplit="1"' in views
+    assert len(panes) == len(set(panes))
 
 
 def test_save_repairs_selections_written_by_older_versions(
@@ -1242,3 +1244,162 @@ def test_input_role_cells_stay_editable_under_protection(
     assert ws.protection.sheet is True
     assert ws["B2"].protection.locked is False and ws["B4"].protection.locked is False
     assert ws["A2"].protection.locked is True
+
+
+# --- keep shapes (Office Scripts / macro buttons), customXml and workbook extensions ---------
+
+_XDR = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+_DML = "http://schemas.openxmlformats.org/drawingml/2006/main"
+_BUTTON = (
+    "<xdr:twoCellAnchor><xdr:from><xdr:col>4</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>1</xdr:row>"
+    "<xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>6</xdr:col><xdr:colOff>0</xdr:colOff>"
+    '<xdr:row>3</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to><xdr:sp macro="" textlink="">'
+    '<xdr:nvSpPr><xdr:cNvPr id="2" name="Run script"/><xdr:cNvSpPr/></xdr:nvSpPr><xdr:spPr>'
+    '<a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom></xdr:spPr><xdr:txBody><a:bodyPr/>'
+    "<a:p><a:r><a:t>Run script</a:t></a:r></a:p></xdr:txBody></xdr:sp><xdr:clientData/>"
+    "</xdr:twoCellAnchor>"
+)
+_LINKED_PIC_SHAPE = _BUTTON.replace('name="Run script"', 'name="Logo shape"').replace(
+    "<a:prstGeom", '<a:blipFill><a:blip r:embed="rId9"/></a:blipFill><a:prstGeom'
+)
+
+
+def _book_with_shapes(path: Path, linked: bool = False) -> Path:
+    """An openpyxl workbook given what Excel writes for a script button, custom XML and a
+    workbook extension (openpyxl itself cannot create them)."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Data"
+    ws.append(["Region", "Amount"])
+    ws.append(["North", 10])
+    wb.create_sheet("Other")
+    wb.save(path)
+    anchors = _BUTTON + (_LINKED_PIC_SHAPE if linked else "")
+    drawing = (
+        f'<?xml version="1.0" encoding="UTF-8"?><xdr:wsDr xmlns:xdr="{_XDR}" xmlns:a="{_DML}" '
+        f'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">{anchors}</xdr:wsDr>'
+    )
+    with zipfile.ZipFile(path) as z:
+        files = {n: z.read(n) for n in z.namelist()}
+    files["xl/drawings/drawing1.xml"] = drawing.encode()
+    files["xl/worksheets/_rels/sheet1.xml.rels"] = (
+        b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        b'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+        b'relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>'
+    )
+    sheet = files["xl/worksheets/sheet1.xml"].decode()
+    sheet = sheet.replace(
+        "</worksheet>",
+        '<drawing xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+        'r:id="rId1"/></worksheet>',
+    )
+    files["xl/worksheets/sheet1.xml"] = sheet.encode()
+    files["customXml/item1.xml"] = (
+        b"<slimTest xmlns='urn:slim:test'><owner>finance</owner></slimTest>"
+    )
+    rels = (
+        files["xl/_rels/workbook.xml.rels"]
+        .decode()
+        .replace(
+            "</Relationships>",
+            '<Relationship Id="rId99" Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+            'relationships/customXml" Target="../customXml/item1.xml"/></Relationships>',
+        )
+    )
+    files["xl/_rels/workbook.xml.rels"] = rels.encode()
+    types = (
+        files["[Content_Types].xml"]
+        .decode()
+        .replace(
+            "</Types>",
+            '<Override PartName="/xl/drawings/drawing1.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>',
+        )
+    )
+    files["[Content_Types].xml"] = types.encode()
+    book = (
+        files["xl/workbook.xml"]
+        .decode()
+        .replace(
+            "</workbook>",
+            '<extLst><ext uri="{SLIM-TEST-EXT}" xmlns:t="urn:slim:ext">'
+            '<t:flag on="1"/></ext></extLst></workbook>',
+        )
+    )
+    files["xl/workbook.xml"] = book.encode()
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in files.items():
+            z.writestr(name, data)
+    return path
+
+
+def _package(path: Path) -> dict[str, str]:
+    with zipfile.ZipFile(path) as z:
+        return {n: z.read(n).decode("utf-8", "replace") for n in z.namelist()}
+
+
+def test_edits_keep_script_buttons_custom_xml_and_workbook_extensions(
+    tmp_path: Path, settings: Settings
+) -> None:
+    # Arrange
+    _book_with_shapes(tmp_path / "s.xlsx")
+    h = Handlers(settings)
+
+    # Act: three different edits, the second adds a chart to the same drawing
+    first = h.write("s.xlsx", "Data", "C1", [["note"]])
+    h.add_chart("s.slim.xlsx", "Data", "column", "A1:B2", anchor="D8", overwrite=True)
+    h.style_sheet("s.slim.xlsx", "Data", overwrite=True)
+
+    # Assert
+    parts = _package(tmp_path / "s.slim.xlsx")
+    drawing = next(x for n, x in parts.items() if n.startswith("xl/drawings/drawing"))
+    assert "kept 1 shape(s)" in first and "Run script" in first
+    assert drawing.count("<xdr:sp ") == 1 and "graphicFrame" in drawing
+    ids = re.findall(r'cNvPr\b[^>]*\bid="(\d+)"', drawing)
+    assert len(ids) == len(set(ids))  # unique ids next to the chart
+    assert "owner>finance" in parts["customXml/item1.xml"]
+    assert "customXml/item1.xml" in parts["xl/_rels/workbook.xml.rels"]
+    assert "{SLIM-TEST-EXT}" in parts["xl/workbook.xml"]
+
+
+def test_a_shape_on_a_sheet_without_drawing_gets_a_new_drawing(
+    tmp_path: Path, settings: Settings
+) -> None:
+    # Arrange: openpyxl writes no drawing for a sheet that has only shapes
+    _book_with_shapes(tmp_path / "s.xlsx")
+
+    # Act
+    Handlers(settings).write("s.xlsx", "Other", "A1", [["x"]])
+
+    # Assert
+    parts = _package(tmp_path / "s.slim.xlsx")
+    assert "<drawing " in parts["xl/worksheets/sheet1.xml"]
+    assert "drawing" in parts["xl/worksheets/_rels/sheet1.xml.rels"]
+    assert any("Run script" in x for n, x in parts.items() if n.startswith("xl/drawings/"))
+    assert "drawing+xml" in parts["[Content_Types].xml"]
+
+
+def test_shapes_linked_to_pictures_are_reported_not_dropped_silently(
+    tmp_path: Path, settings: Settings
+) -> None:
+    # Arrange
+    _book_with_shapes(tmp_path / "s.xlsx", linked=True)
+
+    # Act
+    text = Handlers(settings).write("s.xlsx", "Data", "C1", [["x"]])
+
+    # Assert
+    assert "drops 1 shape(s) linked to pictures or links: Data: Logo shape" in text
+    assert "kept 1 shape(s)" in text
+
+
+def test_overview_lists_shapes(tmp_path: Path, settings: Settings) -> None:
+    # Arrange
+    _book_with_shapes(tmp_path / "s.xlsx")
+
+    # Act
+    text = Handlers(settings).overview("s.xlsx")
+
+    # Assert
+    assert "1 shape(s) such as buttons or text boxes" in text

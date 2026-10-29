@@ -85,8 +85,9 @@ TOOLS: tuple[ToolSpec, ...] = (
     _w(
         "build_report",
         "lite",
-        "Build a branded dashboard sheet from a data sheet in one call. Example: "
-        "kpis=['Revenue=sum:Total','Orders=count'], charts=['trend:Month:Total']",
+        "Build a branded, print-ready dashboard from a data sheet. Example: "
+        "kpis=['Revenue=sum:Rev 2025|vs:Rev 2024:2024'], "
+        "charts=['trend:Month:Total','table:Region:Total'], messages=['finding']",
         "Build dashboard",
     ),
     # --- standard ---------------------------------------------------------------------------
@@ -150,8 +151,9 @@ TOOLS: tuple[ToolSpec, ...] = (
     _w(
         "style_sheet",
         "standard",
-        "Make a table look professional in one call: header, number formats (auto), totals, "
-        "widths, freeze. preset=report|data|finance|striped|minimal.",
+        "Make a table look professional in one call: header, number formats, totals, widths, "
+        "print setup, and restyles the sheet's charts. "
+        "preset=report|data|finance|striped|minimal|charts.",
         "Style table",
     ),
     ToolSpec(

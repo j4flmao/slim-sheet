@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Report quality (client-ready output)
+- `build_report`: KPI `|vs:Column[:label]` variance notes (live, green/red, points for ratios),
+  `messages=[...]` key messages, `table:Category:Value` ranked tables with live SUMIFS formulas,
+  one-page print setup with title and page-number footer, chart data sheet moved to the end, no tool
+  branding in the footer; averages and rates no longer titled as "share of the total".
+- `style_sheet`: print-ready tables (fit to width, header repeated, page numbers; very wide tables print
+  across pages at full size), restyles every chart on the sheet, `preset="charts"` for chart-only
+  sheets; keeps an existing freeze and print setup.
+- Charts: number formats from the source cells, left-aligned message titles, labels clear of negative
+  bars, inside-end labels for the longest bars, no value axis when every bar is labelled, latest value
+  on single trend lines, thin pie slices unlabelled, doughnut legend with contrasting ring labels,
+  scatter axis formats, `None`/`null` titles dropped, bar axis titles on the axis the reader sees.
+- Number inference: decimals follow the data's precision (FX rates keep two, tiny values keep their
+  format), and Vietnamese headers are understood.
+
+### Fixed
+- Edits no longer drop drawing shapes (Office Scripts and macro buttons, text boxes), `customXml/`
+  parts, add-in (`xl/webextensions/`) parts or workbook extensions; `overview` lists shapes.
+- Chart parts are repaired after every save: data-label number formats now apply in Excel
+  (`sourceLinked="0"`), no stray "None" text after repeated edits, and axes without `delete` (area
+  charts after a reload) stay visible in Excel 365; negative bars are no longer drawn hollow.
+- `add_chart` refuses a text column as a series instead of drawing an empty legend entry.
+
 ### Changed (breaking, before 1.0)
 - Five tools merged to keep the tiers at 8/18/30: `validate_formula` → `evaluate check_only=true`, `split` →
   `convert split_by=...`, `add_validation` + `conditional_format` → `rules kind=...`, `rows_ops` → `range_ops`.

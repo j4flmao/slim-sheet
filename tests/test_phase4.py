@@ -710,7 +710,7 @@ def test_deleting_a_data_sheet_warns_about_charts_reading_it(
 ) -> None:
     # Arrange
     structure.sheet_ops("grid.xlsx", "add", "Dash", settings)
-    charts.add_chart("grid.slim.xlsx", "Dash", "pie", "Sales!A1:C6", settings)
+    charts.add_chart("grid.slim.xlsx", "Dash", "pie", "Sales!B1:C6", settings)
 
     # Act
     result = structure.sheet_ops("grid.slim.xlsx", "delete", "Sales", settings)

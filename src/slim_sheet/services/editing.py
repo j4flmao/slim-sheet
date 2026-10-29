@@ -19,7 +19,7 @@ from slim_sheet.adapters import crypto, journal
 from slim_sheet.adapters.formats import sniff
 from slim_sheet.adapters.limits import check_cells
 from slim_sheet.adapters.sandbox import resolve_output, resolve_path
-from slim_sheet.adapters.writers import dynamic_arrays, sparklines
+from slim_sheet.adapters.writers import chart_fixups, dynamic_arrays, keep_parts, sparklines
 from slim_sheet.adapters.writers.xlsx_writer import load_for_edit, lost_features, save_atomic
 from slim_sheet.config import Settings
 from slim_sheet.core.errors import ErrorCode, SlimError
@@ -95,6 +95,7 @@ def edit_workbook(
     warnings = [f"saved copy drops {f} (openpyxl limitation)" for f in lost]
     kept = sparklines.extract(base)  # openpyxl drops them on save; written back below
     spills = dynamic_arrays.extract(base)  # likewise the dynamic-array cell metadata
+    extras = keep_parts.extract(base)  # shapes (script buttons), customXml, add-ins
     change = mutate(wb)
     backup = journal.record(target, note)
     save_atomic(wb, target)
@@ -105,6 +106,8 @@ def edit_workbook(
     for title, cell in change.dynamic:
         spills.setdefault(title, set()).add(cell)
     dynamic_arrays.inject(target, {t: c for t, c in spills.items() if t in wb.sheetnames})
+    warnings += keep_parts.inject(target, extras, wb.sheetnames)
+    chart_fixups.fix_charts(target)  # label formats Excel honours, no stray "None" text
     return OutputResult(
         source.name,
         target.name,

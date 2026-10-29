@@ -257,7 +257,9 @@ def test_aggregate_order_and_insight_titles() -> None:
         insight_title("compare", "Units", [("A", 3.0), ("B", 1.0)])
         == "A leads Units with 75% of the total"
     )
-    assert insight_title("compare", "P&L", [("A", -3.0), ("B", 1.0)]) == "B has the highest P&L"
+    assert (
+        insight_title("compare", "P&L", [("A", -3.0), ("B", 1.0)]) == "B has the highest P&L (1.0)"
+    )
 
 
 # --- adapters: theme and brand resolution ---------------------------------------------------
@@ -492,7 +494,7 @@ def test_build_report_creates_dashboard_tiles_charts_and_footer(
     # Assert
     wb = openpyxl.load_workbook(shop_xlsx)
     board = wb["Dashboard"]
-    assert wb.sheetnames[:2] == ["Dashboard", "Dashboard data"]
+    assert wb.sheetnames[0] == "Dashboard" and wb.sheetnames[-1] == "Dashboard data"
     assert board["B1"].value == "Sales overview H1" and board["B1"].font.size == 16
     assert (
         board["B5"].value == "=SUM('Sales'!$E$2:$E$25)"
@@ -531,7 +533,7 @@ def test_build_report_rebuild_replaces_sheets_instead_of_duplicating(
 
     # Assert
     wb = openpyxl.load_workbook(shop_xlsx)
-    assert wb.sheetnames == ["Dashboard", "Dashboard data", "Sales"]
+    assert wb.sheetnames == ["Dashboard", "Sales", "Dashboard data"]
     assert len(wb["Dashboard"]._charts) == 1
 
 
