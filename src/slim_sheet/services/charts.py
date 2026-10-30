@@ -17,6 +17,7 @@ from slim_sheet.adapters.writers.chart_style import ChartText, style_chart
 from slim_sheet.adapters.writers.sparklines import line_group
 from slim_sheet.config import Settings
 from slim_sheet.core.a1 import index_to_col, parse_range
+from slim_sheet.core.contrast import faint_series
 from slim_sheet.core.design import Brand, formats
 from slim_sheet.core.errors import ErrorCode, SlimError
 from slim_sheet.core.models import CellRange, OutputResult
@@ -26,6 +27,7 @@ from slim_sheet.core.shift import quote_sheet
 from slim_sheet.core.styles import choice
 from slim_sheet.services.editing import Change, edit_workbook, get_sheet
 
+MAX_ROUND_PARTS, MAX_PAIRED_SERIES, MAX_LINES = 5, 2, 4
 CHART_TYPES = ("auto", "column", "bar", "line", "pie", "doughnut", "area", "scatter", "sparkline")
 
 
@@ -95,9 +97,36 @@ def add_chart(
             summary += (
                 f"; replaced {removed} chart(s)" if removed else "; no chart there to replace"
             )
-        return Change(summary)
+        return Change(summary, tuple(chart_warnings(chosen, series, rng.n_rows - 1, look)))
 
     return edit_workbook(path, settings, f"add_chart {kind} {sheet}", mutate, out_path, overwrite)
+
+
+def chart_warnings(kind: str, series: int, points: int, brand: Brand) -> list[str]:
+    """Readability limits the chart breaks (docs/prompts/design.md §4), as teaching hints."""
+    found: list[str] = []
+    if kind in ("pie", "doughnut") and points > MAX_ROUND_PARTS:
+        found.append(
+            f"{points} slices: more than {MAX_ROUND_PARTS} are hard to compare; use type='bar' "
+            "(sorted) or keep the top parts and sum the rest as 'Other'"
+        )
+    if kind in ("column", "bar") and series > MAX_PAIRED_SERIES:
+        found.append(
+            f"{series} series side by side: more than {MAX_PAIRED_SERIES} are hard to read; "
+            "chart the change instead, or one chart per series"
+        )
+    if kind in ("line", "area", "scatter") and series > MAX_LINES:
+        found.append(
+            f"{series} lines: more than {MAX_LINES} tangle; highlight one and grey the rest, "
+            "or split into small charts"
+        )
+    faint = faint_series(brand.palette, series if kind not in ("pie", "doughnut") else points)
+    if faint:
+        found.append(
+            f"brand colour(s) {', '.join(faint)} have under 3:1 contrast on white (WCAG 1.4.11); "
+            "label the series directly or use brand='slim'"
+        )
+    return found
 
 
 def _column(ws: Any, rng: CellRange, col: int) -> list[object]:

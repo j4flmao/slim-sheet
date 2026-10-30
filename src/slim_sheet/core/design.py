@@ -9,11 +9,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
+from slim_sheet.core.contrast import readable_text
 from slim_sheet.core.errors import ErrorCode, SlimError
 
 PROFILES = ("finance", "ibcs", "gov")
 NEGATIVES = ("parens", "minus")
-OKABE_ITO = ("0072B2", "E69F00", "009E73", "D55E00", "56B4E9", "CC79A7")
+# Okabe-Ito, reordered so the first four pass WCAG 3:1 on white (orange and sky blue do not)
+OKABE_ITO = ("0072B2", "D55E00", "009E73", "CC79A7", "E69F00", "56B4E9")
 CONTEXT_GREY = "BFBFBF"  # non-highlighted bars and other context ink in charts
 DASH = chr(0x2013)  # en dash shown for zero in finance formats
 
@@ -36,6 +38,7 @@ class Brand:
     profile: str = "finance"
     negatives: str = "parens"
     currency: str = ""  # symbol shown by the 'currency' format, e.g. '$' or '€'
+    locale: str = "en"  # 'vi': Vietnamese KPI wording and dd/mm/yyyy dates (brand 'vn')
 
 
 BRANDS: dict[str, Brand] = {
@@ -77,7 +80,10 @@ BRANDS: dict[str, Brand] = {
         negatives="minus",
     ),
 }
+BRANDS["vn"] = replace(BRANDS["slim"], name="vn", currency="", locale="vi")
 DEFAULT_BRAND = "slim"
+LOCALES = ("en", "vi")
+LANGUAGES = {"en": "en-US", "vi": "vi-VN"}
 _BRAND_KEYS = {
     "primary",
     "palette",
@@ -92,6 +98,7 @@ _BRAND_KEYS = {
     "profile",
     "negatives",
     "currency",
+    "locale",
 }
 
 
@@ -137,8 +144,8 @@ def _brand_value(key: str, value: object, source: str) -> object:
         if not isinstance(value, list) or not value:
             raise SlimError(ErrorCode.BAD_ARGUMENT, f"{source}: 'palette' must be a list of hex")
         return tuple(hex_color(str(v), f"{source} palette") for v in value)
-    if key in ("profile", "negatives"):
-        options = PROFILES if key == "profile" else NEGATIVES
+    if key in ("profile", "negatives", "locale"):
+        options = {"profile": PROFILES, "negatives": NEGATIVES, "locale": LOCALES}[key]
         text = str(value).strip().lower()
         if text not in options:
             raise SlimError(
@@ -202,10 +209,16 @@ def formats(brand: Brand) -> dict[str, str]:
         "k": _signed('#,##0,"k"', brand),
         "m": _signed('#,##0.0,,"m"', brand),
         "bn": _signed('#,##0.0,,,"bn"', brand),
-        "date": "d mmm yyyy" if brand.profile == "gov" else "yyyy-mm-dd",
+        "date": _date_format(brand),
         "year": "0",
         "text": "@",
     }
+
+
+def _date_format(brand: Brand) -> str:
+    if brand.locale == "vi":
+        return "dd/mm/yyyy"
+    return "d mmm yyyy" if brand.profile == "gov" else "yyyy-mm-dd"
 
 
 def scaled_format(key: str, magnitude: float) -> str:
@@ -261,8 +274,12 @@ class RoleStyle:
 def role_style(role: str, brand: Brand) -> RoleStyle:
     key = role.strip().lower()
     gov = brand.profile == "gov"
+
+    def accent(background: str, size: float) -> str:  # a faint brand colour falls back to ink
+        return readable_text(brand.primary, background, brand.ink, size, bold=True)
+
     styles = {
-        "title": RoleStyle(16, True, brand.ink if gov else brand.primary, font="heading"),
+        "title": RoleStyle(16, True, brand.ink if gov else accent("FFFFFF", 16), font="heading"),
         "subtitle": RoleStyle(10, False, brand.muted),
         "section": RoleStyle(12, True, brand.ink, bottom="thin", font="heading"),
         "header": RoleStyle(
@@ -279,7 +296,8 @@ def role_style(role: str, brand: Brand) -> RoleStyle:
         "external": RoleStyle(color="B30000"),
         "check": RoleStyle(bold=True, color="B30000"),
         "kpi_label": RoleStyle(10, True, brand.muted, align="center"),
-        "kpi_value": RoleStyle(24, True, brand.ink if gov else brand.primary, align="center"),
+        "kpi_value": RoleStyle(24, True, brand.ink if gov else accent(brand.band, 24),
+                               align="center"),
         "kpi_note": RoleStyle(9, False, brand.muted, align="center"),
         "note": RoleStyle(10 if gov else 9, False, brand.muted),
         "good": RoleStyle(bold=True, color=brand.good),

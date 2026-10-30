@@ -33,6 +33,7 @@ from openpyxl.drawing.text import (
 )
 
 from slim_sheet.core.a1 import parse_range
+from slim_sheet.core.contrast import accessible_order, label_ink
 from slim_sheet.core.design import CONTEXT_GREY, Brand
 from slim_sheet.core.refs import split_sheet
 
@@ -43,7 +44,6 @@ BAR_KINDS = ("column", "bar")
 MAX_LABELLED_POINTS = 12
 MAX_END_LABEL_POINTS = 60  # a line labels its last value while the points stay readable
 MIN_LABEL_SHARE = 0.03  # slices under 3% get no label: it would overlap its neighbours
-DARK_LUMINANCE = 0.45  # slice colours darker than this take white label text
 INSIDE_LABEL_SHARE = 0.85  # bars this close to the longest one label inside their end
 _NO_TITLE = {"", "none", "null", "nil", "n/a", "na", "-"}
 
@@ -53,6 +53,7 @@ class ChartText:
     """What the caller knows about the numbers and words around a chart."""
 
     title: str | None = None
+    subtitle: str | None = None  # grey second line: what (unit) / by what / when
     highlight: int | None = None  # category index drawn in the brand colour, others grey
     value_format: str | None = None  # Excel number format of the values
     x_format: str | None = None  # scatter only: format of the x values
@@ -76,15 +77,16 @@ def style_chart(chart: Any, kind: str, brand: Brand, text: ChartText | None = No
     chart.style = None
     title = clean_title(words.title)
     if title:
-        chart.title = _title(title, brand)
+        chart.title = _title(title, brand, clean_title(words.subtitle))
     if kind in ROUND_KINDS:
         _style_round(chart, kind, brand, words.values)
         return
     n_series = len(chart.series)
     _style_axes(chart, kind, brand, words)
     chart.legend = Legend(legendPos="t") if n_series > 1 else None
+    palette = accessible_order(brand.palette)
     for index, series in enumerate(chart.series):
-        _colour_series(series, kind, brand.palette[index % len(brand.palette)])
+        _colour_series(series, kind, palette[index % len(palette)])
     if kind == "bar":  # horizontal bars: first category on top, value axis at the bottom
         chart.x_axis.scaling.orientation = "maxMin"
         chart.y_axis.crosses = "max"
@@ -115,6 +117,8 @@ def _style_axes(chart: Any, kind: str, brand: Brand, words: ChartText) -> None:
         chart.y_axis.majorGridlines = _gridlines(brand)
     if words.value_format:
         chart.y_axis.number_format = axis_format(words.value_format, words.values)
+    if kind in (*BAR_KINDS, "area") and words.values and min(words.values) >= 0:
+        chart.y_axis.scaling.min = 0  # bars and areas are read by length: never cut the base
     # x_title names the horizontal axis; on horizontal bars that is the value (y) axis
     across, up = (chart.y_axis, chart.x_axis) if kind == "bar" else (chart.x_axis, chart.y_axis)
     for axis, label in ((across, words.x_title), (up, words.y_title)):
@@ -189,7 +193,7 @@ def _inside_end_labels(brand: Brand, words: ChartText) -> list[DataLabel]:
         if longest and value >= INSIDE_LABEL_SHARE * longest:
             grey = words.highlight is not None and index != words.highlight
             fill = CONTEXT_GREY if grey else brand.primary
-            ink = "FFFFFF" if _luminance(fill) < DARK_LUMINANCE else brand.ink
+            ink = label_ink(fill, brand.ink)
             label = DataLabel(idx=index, showVal=True, showLegendKey=False, showCatName=False,
                               showSerName=False, showPercent=False)  # fmt: skip
             label.position = "inEnd"
@@ -222,7 +226,8 @@ def _style_round(chart: Any, kind: str, brand: Brand, values: Sequence[float]) -
     ring, in white or ink to contrast with the slice. Thin slices stay unlabelled."""
     series = chart.series[0]
     count = _point_count(series)
-    colours = [brand.palette[i % len(brand.palette)] for i in range(count)]
+    palette = accessible_order(brand.palette)
+    colours = [palette[i % len(palette)] for i in range(count)]
     for index, colour in enumerate(colours):
         point = DataPoint(idx=index)
         point.graphicalProperties = GraphicalProperties(
@@ -257,16 +262,11 @@ def _point_labels(
         label = DataLabel(idx=index, showVal=False, showLegendKey=False, showSerName=False,
                           showCatName=False, showPercent=not hidden)  # fmt: skip
         if not hidden:
-            ink = "FFFFFF" if _luminance(colour) < DARK_LUMINANCE else brand.ink
+            ink = label_ink(colour, brand.ink)
             label.txPr = _text(900, ink, brand.body_font, bold=True)
             label.numFmt = "0%"
         out.append(label)
     return out
-
-
-def _luminance(hex_colour: str) -> float:
-    red, green, blue = (int(hex_colour[i : i + 2], 16) / 255 for i in (0, 2, 4))
-    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
 
 
 def _labels(brand: Brand, number_format: str | None, show_val: bool) -> DataLabelList:
@@ -300,14 +300,20 @@ def _text(size: int, hex_colour: str, typeface: str, bold: bool = False) -> Rich
     return RichText(p=[Paragraph(pPr=ParagraphProperties(defRPr=props), endParaRPr=props)])
 
 
-def _title(text: str, brand: Brand) -> Title:
-    """The message title, top-left like the first line of a slide (not centred)."""
-    props = _props(1200, brand.ink, brand.heading_font, bold=True)
-    paragraph = Paragraph(
-        pPr=ParagraphProperties(defRPr=props, algn="l"), r=[RegularTextRun(rPr=props, t=text)]
-    )
+def _title(text: str, brand: Brand, subtitle: str | None = None) -> Title:
+    """The message title, top-left like the first line of a slide (not centred), and an
+    optional grey line under it that says what is measured, in which unit, for when."""
+    lines = [(text, _props(1200, brand.ink, brand.heading_font, bold=True))]
+    if subtitle:
+        lines.append((subtitle, _props(900, brand.muted, brand.body_font, bold=False)))
+    paragraphs = [
+        Paragraph(
+            pPr=ParagraphProperties(defRPr=props, algn="l"), r=[RegularTextRun(rPr=props, t=t)]
+        )
+        for t, props in lines
+    ]
     corner = Layout(manualLayout=ManualLayout(xMode="edge", yMode="edge", x=0.01, y=0.01))
-    return Title(tx=Text(rich=RichText(p=[paragraph])), overlay=False, layout=corner)
+    return Title(tx=Text(rich=RichText(p=paragraphs)), overlay=False, layout=corner)
 
 
 def _axis_title(text: str, brand: Brand) -> Title:

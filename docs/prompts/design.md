@@ -43,6 +43,7 @@ style_sheet(..., brand=...) on every table, and rebuild the dashboard with build
 | KPI count | `Label=count` or `Label=count:Column` | `Orders=count`, `Customers=count:CustomerID` |
 | KPI formula | `Label==<Excel formula>` | `Target gap==Targets!B2-SUM(Sales!E2:E500)` |
 | KPI vs prior | `...\|vs:Column[:label]` (a ratio: `vs:A/B`) | `Revenue=sum:Rev 2025\|vs:Rev 2024:2024`, `Margin=ratio:NI/Rev\|vs:NI 24/Rev 24:FY24` |
+| KPI vs plan | `...\|plan:Column[:label]` | `Revenue=sum:Actual\|plan:Budget:budget` → `103.2% of budget`; both `vs:` and `plan:` may be given |
 | Chart | `intent:Category:Value[:agg][:Title]` | `trend:Month:Revenue`, `rank:Region:count`, `share:Product:Units:sum:Mix by product` |
 | Ranked table | `table:Category:Value[:agg][:Title]` | `table:Customer:Revenue` (top 10, live formulas, share and total) |
 | Key messages | `messages=[...]` (up to 5 sentences) | `messages=['North grew 31%, twice the average.']` |
@@ -124,6 +125,15 @@ workbook as a real Office theme, so Excel's own table and chart styles follow it
 - **Existing charts** (style_sheet, `preset="charts"` for chart-only sheets): charts made by Excel,
   another tool or an older slim-sheet get the same rules in place: same data, anchor and title.
 - **Colour means something**: one accent; green/red only for good/bad; finance inputs blue.
+
+- **Accessibility** (every edit): chart colours ordered so the first series pass WCAG 3:1 on
+  white, faint brand colours never used for text (falls back to ink), alt text on every chart
+  from its title, document title and language set by build_report.
+- **Readiness check**: `anomalies(scope='client')` lists what a reviewer would flag: manual
+  calculation, external links, hidden sheets, merged cells in tables, red-only negatives,
+  amounts without a unit, charts without a title or alt text, 3-D and dual-axis charts.
+
+Ready-made role presets and a portable skill: [skills/building-client-reports](../../skills/building-client-reports/SKILL.md).
 
 ## 5. When you build by hand (full tier)
 
