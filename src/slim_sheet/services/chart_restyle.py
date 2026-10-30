@@ -82,8 +82,10 @@ def _chart_text(wb: Any, chart: Any, kind: str, brand: Brand) -> ChartText:
         x_name = title_text(chart.x_axis.title) or ""
         x_format = _format(wb, x_ref, brand, x_name, _numbers(wb, x_ref))
     across, up = _axis_titles(chart, kind)
+    lines = title_lines(chart.title)
     return ChartText(
-        title=title_text(chart.title),
+        title=lines[0] if lines else None,
+        subtitle=lines[1] if len(lines) > 1 else None,
         value_format=_format(wb, y_ref, brand, header, values),
         x_format=x_format,
         x_title=across,
@@ -108,14 +110,21 @@ def _axis_titles(chart: Any, kind: str) -> tuple[str | None, str | None]:
     return (value, category) if kind == "bar" else (category, value)
 
 
-def title_text(title: Any) -> str | None:
-    """The plain text of a chart or axis title (rich runs joined); None if absent or a ref."""
+def title_lines(title: Any) -> list[str]:
+    """The text of each line of a chart title (message, then subtitle); [] if absent."""
     if title is None or title.tx is None or title.tx.rich is None:
-        return None
-    runs = [
-        run.t for paragraph in title.tx.rich.p for run in (paragraph.r or []) if run.t is not None
-    ]
-    return clean_title("".join(runs))
+        return []
+    lines = (
+        clean_title("".join(run.t for run in (p.r or []) if run.t is not None))
+        for p in title.tx.rich.p
+    )
+    return [line for line in lines if line]
+
+
+def title_text(title: Any) -> str | None:
+    """An axis title as one line; None if absent or a cell reference."""
+    lines = title_lines(title)
+    return " ".join(lines) if lines else None
 
 
 def _ref(series: Any, part: str) -> str | None:

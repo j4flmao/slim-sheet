@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Report standards (IBCS, WCAG, FAST/ICAEW, UK Analysis Function)
+- Accessible colour: chart series ordered so the first ones pass WCAG 3:1 (default palette
+  reordered: Okabe-Ito orange and sky blue failed), text colours checked for 4.5:1 / 3:1,
+  label ink chosen by contrast; warnings for faint brand colours.
+- Alt text written for every chart that has none, from its kind and title.
+- Chart titles get a grey second line (`<value> by <category>`); bars, columns and areas start
+  at zero; doughnuts take at most 4 parts; `add_chart` warns past 4 lines, 2 paired bar series
+  or 5 slices.
+- KPI `|plan:Column[:label]` attainment notes (`103.2% of budget`), jumps of 2x or more shown
+  as multiples (`2.4x vs 2025`), opex/attrition/lead time treated as lower-is-better.
+- `build_report` sets the document title and language and names the units in the default
+  subtitle.
+- `anomalies scope='client'`: readiness audit (manual calculation, iterative calculation,
+  external links, missing title, default sheet names, hidden or empty sheets, merged cells in
+  tables, red-only negatives, amounts without units, charts without title or alt text, 3-D,
+  dual axes, too many lines).
+- Optional `brand='vn'`: Vietnamese KPI wording (so với cùng kỳ, Hoàn thành X% KH), dd/mm/yyyy
+  dates, vi-VN language; Vietnamese finance abbreviations understood (LNST, VCSH, P/E, ROE...).
+- Skill pack `skills/building-client-reports`: SKILL.md, report brief, standards checklist,
+  seven role presets tested to run as written, small-model guide, evals.
+
 ### Report quality (client-ready output)
 - `build_report`: KPI `|vs:Column[:label]` variance notes (live, green/red, points for ratios),
   `messages=[...]` key messages, `table:Category:Value` ranked tables with live SUMIFS formulas,

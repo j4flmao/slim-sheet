@@ -120,8 +120,8 @@ def test_kpi_comparison_is_a_live_coloured_note(two_years: Path, settings: Setti
 
     # Assert
     board = openpyxl.load_workbook(two_years)["Dashboard"]
-    assert board["B6"].value.startswith("=IFERROR(TEXT($B$5/(SUM(")
-    assert board["B6"].value.endswith('&" vs 2024","n/a")')
+    assert board["B6"].value.startswith("=IFERROR(IF($B$5/(SUM(")
+    assert board["B6"].value.endswith('&" vs 2024"),"n/a")')
     assert '" pts vs 2024"' in board["F6"].value
     rules = {str(r.sqref): [x.formula[0] for x in r.rules] for r in board.conditional_formatting}
     assert ">=(SUM(" in rules["B6"][0]  # revenue up is good
@@ -185,6 +185,7 @@ def test_table_slot_is_a_live_ranked_table(two_years: Path, settings: Settings) 
     assert board["J10"].value.startswith("=AVERAGEIFS(")
     assert board["L9"].value is None  # averages are not shares of a whole
     assert "table B8: top 5 of 5 Region" in result.summary
+    assert not board.merged_cells.ranges  # names overflow into the gutter; no merges
     assert len(board._charts) == 0
 
 
@@ -619,3 +620,251 @@ def test_the_longest_bars_label_inside_their_end(tmp_path: Path, settings: Setti
     inside = re.findall(r'<dLbl><idx val="(\d+)"/>.*?<dLblPos val="inEnd"/>', labels)
     assert inside == ["0", "2"]
     assert '<dLblPos val="outEnd"/>' in labels  # the rest stay outside
+
+
+# --- standards: contrast, alt text, subtitles, plan attainment, locale ------------------------
+
+
+def test_default_palette_puts_readable_colours_first() -> None:
+    # Arrange
+    from slim_sheet.core.contrast import accessible_order, contrast_ratio
+    from slim_sheet.core.design import BRANDS
+
+    # Act
+    ordered = accessible_order(BRANDS["slim"].palette)
+
+    # Assert: WCAG 1.4.11 needs 3:1 for chart marks against white
+    assert all(contrast_ratio(c) >= 3.0 for c in ordered[:4])
+    assert contrast_ratio("E69F00") < 3.0 and ordered.index("E69F00") >= 4
+
+
+@pytest.mark.parametrize(
+    ("fg", "bg", "size", "bold", "expected"),
+    [
+        ("767676", "FFFFFF", 11, False, "767676"),  # 4.54:1 passes for body text
+        ("949494", "FFFFFF", 11, False, "262626"),  # 3.03:1 fails body text: ink instead
+        ("949494", "FFFFFF", 24, True, "949494"),  # but large text needs only 3:1
+    ],
+)
+def test_readable_text_falls_back_to_ink(
+    fg: str, bg: str, size: float, bold: bool, expected: str
+) -> None:
+    # Act / Assert
+    from slim_sheet.core.contrast import readable_text
+
+    assert readable_text(fg, bg, "262626", size, bold) == expected
+
+
+def test_a_faint_brand_colour_never_becomes_title_text() -> None:
+    # Arrange
+    from dataclasses import replace
+
+    from slim_sheet.core.design import BRANDS, role_style
+
+    pale = replace(BRANDS["slim"], primary="FFC000")
+
+    # Act / Assert
+    assert role_style("title", pale).color == pale.ink
+    assert role_style("title", BRANDS["slim"]).color == "156082"
+
+
+def test_every_chart_gets_alt_text_from_its_title(tmp_path: Path, settings: Settings) -> None:
+    # Arrange
+    path = _block(tmp_path, [["Region", "Profit"], ["A", 3], ["B", 2]])
+
+    # Act
+    charts.add_chart(str(path), "S", "bar", "A1:B3", settings, title="A leads Profit",
+                     overwrite=True)  # fmt: skip
+
+    # Assert
+    with zipfile.ZipFile(path) as archive:
+        drawing = archive.read("xl/drawings/drawing1.xml").decode()
+    assert 'descr="Bar chart: A leads Profit"' in drawing
+
+
+def test_alt_text_an_author_wrote_is_kept() -> None:
+    # Arrange
+    from slim_sheet.adapters.writers.chart_alt import with_alt_text
+
+    drawing = (
+        '<xdr:graphicFrame><xdr:nvGraphicFramePr><xdr:cNvPr id="2" name="C" descr="Mine"/>'
+        '</xdr:nvGraphicFramePr><c:chart r:id="rId1"/></xdr:graphicFrame>'
+    )
+
+    # Act / Assert
+    assert with_alt_text(drawing, {"rId1": "<c:pieChart/>"}) == drawing
+
+
+def test_report_charts_carry_a_what_by_what_subtitle(two_years: Path, settings: Settings) -> None:
+    # Act
+    report.build_report(str(two_years), "Sales", "T", settings,
+                        charts=["rank:Region:Revenue 2025"], overwrite=True)  # fmt: skip
+
+    # Assert
+    xml = _charts_xml(two_years)[0]
+    title = xml[xml.index("<title>") : xml.index("</title>")]
+    assert "Revenue 2025 by Region" in title and 'sz="900"' in title
+
+
+def test_columns_start_at_zero(tmp_path: Path, settings: Settings) -> None:
+    # Arrange: Excel would start this axis near 950
+    path = _block(tmp_path, [["Region", "Sales"], ["A", 980], ["B", 1000], ["C", 990]])
+
+    # Act
+    charts.add_chart(str(path), "S", "column", "A1:B4", settings, overwrite=True)
+
+    # Assert
+    value_axis = _charts_xml(path)[0].split("<valAx>")[1]
+    assert '<min val="0"/>' in value_axis.split("</scaling>")[0]
+
+
+def test_add_chart_warns_about_unreadable_charts(tmp_path: Path, settings: Settings) -> None:
+    # Arrange
+    rows: list[list[object]] = [["Part", *[f"S{i}" for i in range(5)]]]
+    rows += [[f"P{r}", *range(5)] for r in range(3)]
+    path = _block(tmp_path, rows)
+
+    # Act
+    result = charts.add_chart(str(path), "S", "line", "A1:F4", settings, overwrite=True)
+
+    # Assert
+    assert any("5 lines: more than 4 tangle" in w for w in result.warnings)
+
+
+def test_plan_attainment_and_multiples_in_kpi_notes(two_years: Path, settings: Settings) -> None:
+    # Act
+    result = report.build_report(
+        str(two_years), "Sales", "T", settings,
+        kpis=["Revenue=sum:Revenue 2025|vs:Revenue 2024:2024|plan:Cost:budget",
+              "Jump=sum:Revenue 2025|vs:Growth:base"],
+        overwrite=True,
+    )  # fmt: skip
+
+    # Assert
+    board = openpyxl.load_workbook(two_years)["Dashboard"]
+    assert '" of budget"' in board["B6"].value and '" · "' in board["B6"].value
+    assert '"0.0""x"""' in board["D6"].value  # 2x or more reads as a multiple
+    assert "% of budget" in result.summary and "x base" in result.summary
+
+
+def test_vn_brand_uses_vietnamese_wording_and_dates(two_years: Path, settings: Settings) -> None:
+    # Act
+    report.build_report(
+        str(two_years), "Sales", "T", settings, brand="vn",
+        kpis=["Revenue=sum:Revenue 2025|vs:Revenue 2024:cùng kỳ|plan:Cost:KH"], overwrite=True,
+    )  # fmt: skip
+
+    # Assert
+    wb = openpyxl.load_workbook(two_years)
+    assert '"Hoàn thành "&TEXT(' in wb["Dashboard"]["B6"].value
+    assert '" so với cùng kỳ"' in wb["Dashboard"]["B6"].value
+    assert wb.properties.language == "vi-VN"
+
+
+def test_dashboard_sets_title_language_and_units(two_years: Path, settings: Settings) -> None:
+    # Arrange
+    wb = openpyxl.load_workbook(two_years)
+    wb["Sales"]["C1"] = "Revenue 2025 (USD m)"
+    wb.save(two_years)
+
+    # Act
+    report.build_report(str(two_years), "Sales", "Sales 2025", settings,
+                        kpis=["Revenue=sum:Revenue 2025 (USD m)"], overwrite=True)  # fmt: skip
+
+    # Assert
+    book = openpyxl.load_workbook(two_years)
+    assert (book.properties.title, book.properties.language) == ("Sales 2025", "en-US")
+    assert "Units: USD m" in book["Dashboard"]["B2"].value
+
+
+def test_parse_kpi_reads_plan_segments() -> None:
+    # Act
+    spec = parse_kpi("Sales=sum:Actual|plan:Target:target|vs:Prior")
+
+    # Assert
+    assert (spec.plan, spec.plan_label, spec.vs, spec.vs_label) == (
+        "Target",
+        "target",
+        "Prior",
+        "prior",
+    )
+
+
+# --- client-readiness audit -------------------------------------------------------------------
+
+
+def _unready_book(path: Path) -> Path:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    assert ws is not None  # keeps the default name 'Sheet'
+    ws.append(["Region", "Revenue", "Cost"])
+    for row in (["North", 10, 4], ["South", 12, 5], ["East", 9, 3], ["West", 7, 2]):
+        ws.append(row)
+    ws.merge_cells("A4:A5")
+    ws["B2"].number_format = "#,##0;[Red]#,##0"
+    hidden = wb.create_sheet("Lookup")
+    hidden.sheet_state = "hidden"
+    wb.calculation.calcMode = "manual"
+    wb.save(path)
+    return path
+
+
+def test_client_audit_flags_what_reviewers_flag(tmp_path: Path, settings: Settings) -> None:
+    # Arrange
+    _unready_book(tmp_path / "u.xlsx")
+
+    # Act
+    text = Handlers(settings).anomalies("u.xlsx", scope="client")
+
+    # Assert
+    for kind in ("manual_calc", "no_title", "default_sheet_name", "hidden_sheet",
+                 "merged_cells", "red_only_negative", "missing_unit"):  # fmt: skip
+        assert f"[{kind}]" in text, kind
+    assert "Sheet!A4:A5" in text and "B Revenue, C Cost" in text
+
+
+def test_client_audit_accepts_a_unit_stated_above_the_table(
+    tmp_path: Path, settings: Settings
+) -> None:
+    # Arrange
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Results"
+    ws.append(["Results by region"])
+    ws.append(["Units: USD m"])
+    ws.append(["Region", "Revenue", "Cost"])
+    ws.append(["North", 10.5, 4.25])
+    ws.append(["South", 12.5, 5.75])
+    wb.properties.title = "Results"
+    wb.save(tmp_path / "r.xlsx")
+
+    # Act
+    text = Handlers(settings).anomalies("r.xlsx", scope="client")
+
+    # Assert
+    assert "No anomalies found." in text
+
+
+def test_client_audit_names_charts_without_alt_text_by_sheet(
+    tmp_path: Path, settings: Settings
+) -> None:
+    # Arrange: a chart saved by plain openpyxl, as another tool would leave it
+    path = _old_style_chart(tmp_path)
+
+    # Act
+    before = Handlers(settings).anomalies("old.xlsx", scope="client")
+    design.style_sheet(str(path), "S", settings, preset="charts", overwrite=True)
+    after = Handlers(settings).anomalies("old.xlsx", scope="client")
+
+    # Assert
+    assert "- S [chart_no_alt_text] 1 chart(s)" in before
+    assert "chart_no_alt_text" not in after
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [(9746.55, "integer"), (98.64, "number1"), (4.271, "number2")]
+)
+def test_kpi_tiles_show_three_or_four_significant_digits(value: float, expected: str) -> None:
+    # Act / Assert
+    assert report.headline_decimals(value) == expected

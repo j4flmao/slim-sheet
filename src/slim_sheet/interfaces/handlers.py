@@ -77,6 +77,7 @@ from slim_sheet.services.query import query as run_query
 from slim_sheet.services.ranges import RangeRequest
 from slim_sheet.services.read import ReadRequest, parse_format
 from slim_sheet.services.read import read as read_grid
+from slim_sheet.services.readiness import client_audit
 from slim_sheet.services.undo import undo as undo_write
 from slim_sheet.services.what_if import WhatIfRequest
 from slim_sheet.services.what_if import what_if as run_what_if
@@ -84,7 +85,7 @@ from slim_sheet.services.write import WriteRequest
 from slim_sheet.services.write import write as write_cells
 
 Scalar = str | int | float | bool | None
-ANOMALY_SCOPES = ("data", "formulas", "macros", "all")
+ANOMALY_SCOPES = ("data", "formulas", "macros", "client", "all")
 
 
 def _as_text(value: object) -> object:
@@ -216,6 +217,8 @@ class Handlers:
             parts.append(render_anomalies(audited))
         if key == "macros" or (key == "all" and macros.has_project(path, self.settings)):
             parts.append(render_anomalies(macros.macro_audit(path, self.settings, max_results)))
+        if key == "client":  # opt-in: a review checklist, not data errors
+            parts.append(render_anomalies(client_audit(path, self.settings, max_results)))
         return "\n\n".join(parts)
 
     def merge(

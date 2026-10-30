@@ -103,7 +103,7 @@ TOOLS: tuple[ToolSpec, ...] = (
         "anomalies",
         "standard",
         "Find suspicious cells (duplicates, types, outliers, typos); scope='formulas' audits "
-        "models; scope='macros' rates VBA risks (auto-run, Shell, downloads).",
+        "models; scope='macros' rates VBA risks; scope='client' checks readiness for clients.",
         title="Find anomalies",
     ),
     _w(

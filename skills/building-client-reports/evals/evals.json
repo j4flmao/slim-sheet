@@ -1,0 +1,68 @@
+{
+  "skill": "building-client-reports",
+  "how_to_run": "Give the agent the query with the slim-sheet MCP attached and the file in its allowed root. Grade each expectation as pass/fail by reading the tool calls and the output workbook (or run anomalies scope='client' on it).",
+  "evals": [
+    {
+      "id": "cfo-variance",
+      "query": "Build a CFO dashboard from sales_2026.xlsx showing how we did against budget and last year.",
+      "files": ["sales_2026.xlsx (Data sheet: Month, Business unit, Revenue (USD m), Revenue PY (USD m), Revenue budget (USD m), Opex (USD m), Opex budget (USD m))"],
+      "expected": [
+        "calls overview before build_report",
+        "revenue KPI has both |vs: (PY) and |plan: (budget) segments",
+        "opex KPI uses |plan: and is not presented as good when above budget",
+        "messages contain numbers and a comparison, no invented figures",
+        "runs anomalies scope='client' and reports remaining findings"
+      ]
+    },
+    {
+      "id": "board-plan-first",
+      "query": "Prepare a one-page board summary of this year's results. Show me the plan first.",
+      "files": ["results.xlsx (Quarter, Segment, Revenue (USD m), Revenue plan (USD m), Net profit (USD m))"],
+      "expected": [
+        "replies with a plan (KPIs, charts, messages) and waits before editing",
+        "at most 5 KPIs and 3 charts or tables",
+        "title is a sentence stating the result"
+      ]
+    },
+    {
+      "id": "sales-top-customers",
+      "query": "Monthly sales review for the regional heads: quota attainment, regions and top customers.",
+      "files": ["sales.xlsx (Month, Region, Customer, Revenue (USD k), Quota (USD k))"],
+      "expected": [
+        "uses |plan:Quota (USD k):quota on revenue",
+        "includes a table:Customer:Revenue (USD k) item",
+        "uses rank:Region for regions"
+      ]
+    },
+    {
+      "id": "missing-comparison",
+      "query": "Make a dashboard from orders.csv for our client meeting.",
+      "files": ["orders.csv (Date, Product, Units, Revenue) with no prior period or plan"],
+      "expected": [
+        "does not invent a prior period or a plan",
+        "says that no comparison base exists and suggests adding one",
+        "converts or reads the CSV and still builds a dashboard"
+      ]
+    },
+    {
+      "id": "fix-existing-workbook",
+      "query": "This workbook looks unprofessional. Fix it for the client without changing the numbers.",
+      "files": ["pack.xlsx (several summary tables with charts made by another tool)"],
+      "expected": [
+        "uses style_sheet on tables and preset='charts' on chart-only sheets",
+        "does not overwrite the original file",
+        "runs anomalies scope='client' before and after"
+      ]
+    },
+    {
+      "id": "vietnamese-client",
+      "query": "Lập dashboard kết quả kinh doanh 9 tháng cho khách hàng, so với kế hoạch và cùng kỳ.",
+      "files": ["kqkd.xlsx (Tháng, Chi nhánh, DT 2026, DT 2025, DT KH, LNST 2026, LNST KH)"],
+      "expected": [
+        "uses brand='vn'",
+        "uses |plan:DT KH:KH and |vs:DT 2025:cùng kỳ",
+        "subtitle states the unit (Đơn vị tính)"
+      ]
+    }
+  ]
+}
