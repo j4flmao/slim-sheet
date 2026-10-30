@@ -1,6 +1,6 @@
-# Release on a version tag (v0.1.0): build, publish to PyPI with trusted publishing (PEP 740
-# attestations), attest the build provenance and publish an SPDX SBOM, then publish server.json
-# to the MCP Registry with GitHub OIDC. No stored secrets.
+# Release on a version tag (v0.1.0): build, attest the build provenance and publish an SPDX SBOM,
+# publish to PyPI with the PYPI_API_TOKEN repository secret, then publish server.json to the MCP
+# Registry with GitHub OIDC.
 name: release
 
 on:
@@ -10,14 +10,21 @@ on:
 jobs:
   pypi:
     runs-on: ubuntu-latest
-    environment: pypi
     permissions:
-      id-token: write
+      id-token: write  # build provenance attestation
       attestations: write
       contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      - name: PyPI token must be set
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          test -n "$PYPI_API_TOKEN" || {
+            echo "::error::Add the PYPI_API_TOKEN repository secret (Settings > Secrets and variables > Actions)"
+            exit 1
+          }
       - name: Tag must match pyproject version
         run: test "v$(uv version --short)" = "${GITHUB_REF_NAME}"
       - run: uv run python scripts/build_manifests.py --check
@@ -38,7 +45,8 @@ jobs:
         run: gh release create "${GITHUB_REF_NAME}" dist/* slim-sheet.spdx.json --generate-notes
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          attestations: true
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          attestations: false  # PEP 740 attestations need trusted publishing, not a token
 
   mcp-registry:
     needs: pypi
