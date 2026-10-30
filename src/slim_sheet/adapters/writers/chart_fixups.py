@@ -6,6 +6,7 @@
 - Text properties (<txPr>) get an empty run <a:r><a:t/></a:r>; read back, the empty text
   becomes None and the next save writes the word "None". txPr holds formatting only, so its
   runs are removed.
+- Every chart without alt text gets one from its kind and title (chart_alt.py).
 - Excel 365 hides an axis that has no <delete>. openpyxl writes none for axes it rebuilt on
   load (an area chart loses its axis settings that way), so a missing one becomes val="0".
 """
@@ -14,12 +15,16 @@ from __future__ import annotations
 
 import contextlib
 import os
+import posixpath
 import re
 import tempfile
 import zipfile
 from pathlib import Path
 
+from slim_sheet.adapters.writers.chart_alt import chart_targets, with_alt_text
+
 _CHART_PART = re.compile(r"^xl/charts/chart\d+\.xml$")
+_DRAWING_PART = re.compile(r"^xl/drawings/drawing\d+\.xml$")
 _NUM_FMT = re.compile(r"<((?:\w+:)?numFmt)\b(?![^>]*\bsourceLinked=)([^>]*?)\s*/>")
 _TX_PR = re.compile(r"<((?:\w+:)?txPr)>(.*?)</\1>", re.DOTALL)
 _RUN = re.compile(r"<a:r>.*?</a:r>", re.DOTALL)
@@ -44,12 +49,24 @@ def _visible_axis(match: re.Match[str]) -> str:
 
 
 def fix_charts(path: Path) -> int:
-    """Rewrite the package when a chart part needs a repair; returns the parts changed."""
+    """Rewrite the package when a chart part needs a repair or a chart lacks alt text;
+    returns the parts changed."""
     fixed: dict[str, str] = {}
     with zipfile.ZipFile(path) as source:
-        for name in filter(_CHART_PART.match, source.namelist()):
-            old = source.read(name).decode("utf-8")
+        names = source.namelist()
+        charts = {n: source.read(n).decode("utf-8") for n in names if _CHART_PART.match(n)}
+        for name, old in charts.items():
             new = fix_chart_xml(old)
+            if new != old:
+                fixed[name] = charts[name] = new
+        for name in filter(_DRAWING_PART.match, names):
+            rels = posixpath.join(posixpath.dirname(name), "_rels", posixpath.basename(name))
+            if f"{rels}.rels" not in names:
+                continue
+            targets = chart_targets(name, source.read(f"{rels}.rels").decode("utf-8"))
+            linked = {rid: charts[part] for rid, part in targets.items() if part in charts}
+            old = source.read(name).decode("utf-8")
+            new = with_alt_text(old, linked) if linked else old
             if new != old:
                 fixed[name] = new
     if not fixed:

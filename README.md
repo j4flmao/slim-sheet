@@ -123,6 +123,13 @@ with filled-in example sets, about 50 one-paste task recipes in 8 packs (finance
 data prep, Excel tasks, reporting, Vietnam) and compact blocks for small local models:
 [docs/prompts](https://github.com/j4flmao/slim-sheet/blob/main/docs/prompts/README.md).
 
+## Skill packs
+
+[skills/building-client-reports](skills/building-client-reports/SKILL.md) turns the tools into
+client-ready reports: a report brief, role presets (CFO, board, sales, marketing, operations,
+HR, market research), a standards checklist and evals. Copy it into `~/.claude/skills/` or
+attach it to any agent ([skills/README.md](skills/README.md)).
+
 ## Non-MCP hosts
 
 ```bash

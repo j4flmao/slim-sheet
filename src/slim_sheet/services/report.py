@@ -9,6 +9,7 @@ aggregated once into a '<sheet> data' sheet that the charts read.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Any
 
 from openpyxl.styles import PatternFill
@@ -23,7 +24,9 @@ from slim_sheet.core.a1 import index_to_col
 from slim_sheet.core.design import (
     CONTEXT_GREY,
     FORMAT_NAMES,
+    LANGUAGES,
     Brand,
+    RoleStyle,
     formats,
     role_style,
     scaled_format,
@@ -51,6 +54,7 @@ from slim_sheet.services.report_blocks import (
     colour_comparison,
     comparison_formula,
     describe_change,
+    joined_notes,
     kpi_comparison,
     table_slot,
     write_messages,
@@ -60,6 +64,8 @@ MAX_KPIS, MAX_CHARTS = 6, 6
 MAX_BARS = 12  # longer rankings keep the top 11 and fold the rest into "Other"
 TILE_WIDTH, GUTTER, MARGIN = 22, 2, 2
 CHART_WIDTH_CM, CHART_HEIGHT_CM, CHART_ROWS, CHART_TOP = 13.6, 7.6, 16, 8
+_UNIT = re.compile(r"[(\[]([^)\]]+)[)\]]")
+MAX_UNIT_CHARS = 20
 LAST_GRID_COL = 13  # M: one margin column right of the six tiles
 ROW_HEIGHTS = {1: 32, 2: 18, 3: 8, 4: 20, 5: 36, 6: 18, 7: 12}
 
@@ -92,7 +98,8 @@ def build_report(
         board = _fresh_sheet(wb, sheet, 0)
         helper = _fresh_sheet(wb, f"{sheet} data"[:31], None)
         helper.sheet_properties.tabColor = f"FF{CONTEXT_GREY}"
-        _layout(board, look, title, subtitle or _default_subtitle(data))
+        used = _used_columns(kpi_specs, chart_specs)
+        _layout(board, look, title, subtitle or _default_subtitle(data, used))
         lines = [_tile(board, i, spec, data, look) for i, spec in enumerate(kpi_specs)]
         top = write_messages(board, said, CHART_TOP, look, "Key messages") if said else CHART_TOP
         row = 1
@@ -102,6 +109,7 @@ def build_report(
         last = _footer(board, look, data, len(chart_specs), top, helper.title)
         print_dashboard(board, CellRange(0, 0, last - 1, LAST_GRID_COL - 1), title)
         apply_brand(wb, look, force=explicit)
+        _document_properties(wb, title, look)
         wb.active = 0
         rows = data.last - data.first + 1
         head = f"built {board.title} (brand {look.name}) from {data.ws.title} ({rows} rows)"
@@ -151,9 +159,30 @@ def _fresh_sheet(wb: Any, name: str, index: int | None) -> Any:
     return wb.create_sheet(name, index)
 
 
-def _default_subtitle(data: ReportData) -> str:
+def _default_subtitle(data: ReportData, columns: list[str]) -> str:
+    """Source, units and build date: a reader must know what the numbers are in."""
     today = dt.date.today().isoformat()
-    return f"Source: {data.ws.title} ({data.last - data.first + 1} rows) · Built {today}"
+    units = units_in(columns)
+    unit = f" · Units: {', '.join(units)}" if units else ""
+    return f"Source: {data.ws.title} ({data.last - data.first + 1} rows){unit} · Built {today}"
+
+
+def units_in(headers: list[str]) -> list[str]:
+    """Units named in headers, '(USD bn)' or '[%]', once each in order of appearance."""
+    found = (m.strip() for h in headers for m in _UNIT.findall(h))
+    return list(dict.fromkeys(u for u in found if u and len(u) <= MAX_UNIT_CHARS))
+
+
+def _used_columns(kpis: list[KpiSpec], charts: list[ChartSpec]) -> list[str]:
+    names = [n for k in kpis for n in (k.column, k.column2) if n]
+    return names + [c.value for c in charts if c.value != "count"]
+
+
+def _document_properties(wb: Any, title: str, brand: Brand) -> None:
+    """Title and language a screen reader and a tagged PDF announce; an author's stay."""
+    props = wb.properties
+    props.title = props.title or title
+    props.language = props.language or LANGUAGES.get(brand.locale, "en-US")
 
 
 def _layout(ws: Any, brand: Brand, title: str, subtitle: str) -> None:
@@ -179,9 +208,14 @@ def _tile(ws: Any, index: int, spec: KpiSpec, data: ReportData, brand: Brand) ->
     fmt = formats(brand)[scaled_format(key, value or 0.0)]
     col = index_to_col(1 + 2 * index)
     value_cell = f"${col}$5"
-    comparison = kpi_comparison(spec, data) if spec.vs else None
-    if comparison:
-        note = comparison_formula(comparison, value_cell)
+    compared = [
+        kpi_comparison(spec, data, plan=is_plan)
+        for is_plan, column in ((False, spec.vs), (True, spec.plan))
+        if column
+    ]
+    if compared:
+        notes = [comparison_formula(c, value_cell, brand.locale) for c in compared]
+        note = notes[0] if len(notes) == 1 else joined_notes(*notes)
     fill = PatternFill("solid", fgColor=f"FF{brand.band}")
     for row, content, role in (
         (4, spec.label, "kpi_label"),
@@ -192,10 +226,13 @@ def _tile(ws: Any, index: int, spec: KpiSpec, data: ReportData, brand: Brand) ->
         cell.value = content
         style_cell(cell, role_style(role, brand), brand, fmt if row == 5 else None)
         cell.fill = fill
-    if comparison:
-        colour_comparison(ws, f"{col}6", value_cell, comparison, spec, brand)
+    if compared:  # the first comparison colours the note
+        colour_comparison(ws, f"{col}6", value_cell, compared[0], spec, brand)
+    if len(compared) > 1:
+        style_cell(ws[f"{col}6"], RoleStyle(wrap=True), brand)
+        ws.row_dimensions[6].height = 26
     shown = "computed in Excel" if value is None else _plain(value)
-    change = describe_change(value, comparison) if comparison else ""
+    change = "".join(describe_change(value, c) for c in compared)
     return f"KPI {spec.label} = {shown}{change} ({formula}) at {col}5"
 
 
@@ -230,9 +267,17 @@ def _kpi_parts(spec: KpiSpec, data: ReportData) -> tuple[str, float | None, str,
     inferred = infer_format(spec.column, values)[0] or "integer"
     if spec.agg == "avg" and inferred == "integer" and value is not None and abs(value) < 100:
         inferred = "number1"  # an average of whole numbers is rarely whole
+    if inferred in ("number1", "number2") and value is not None:
+        inferred = headline_decimals(value)
     word = {"sum": "Total", "avg": "Average", "min": "Lowest", "max": "Highest"}[spec.agg]
     formula = f"={func}({data.ref(col)})"
     return formula, value, f"{word} {spec.column}", _fmt_key(spec.fmt, inferred)
+
+
+def headline_decimals(value: float) -> str:
+    """A tile shows 3-4 significant digits: 9,747 / 98.6 / 4.27, never 9,746.55."""
+    size = abs(value)
+    return "integer" if size >= 1000 else "number1" if size >= 10 else "number2"
 
 
 def _total(values: list[object]) -> float:
@@ -301,6 +346,7 @@ def _chart(
     scatter = choice_.kind == "scatter"
     text = ChartText(
         title=title,
+        subtitle=f"{label} by {spec.category}" if not scatter else None,
         highlight=highlight,
         value_format=fmt,
         x_format=_x_format(spec.category, points, brand) if scatter else None,

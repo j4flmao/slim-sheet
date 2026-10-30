@@ -44,7 +44,11 @@ _VI_WORDS = {"tăng trưởng": "growth", "tt": "growth", "thay đổi": "change
              "biên": "margin", "doanh thu": "revenue", "dt": "revenue", "lợi nhuận": "profit",
              "ln": "profit", "vốn hóa": "cap", "vốn hoá": "cap", "chi phí": "cost", "giá": "price",
              "tổng": "total", "số lượng": "quantity", "số": "number", "niêm yết": "listed",
-             "năm": "year", "mã": "code"}  # fmt: skip
+             "năm": "year", "mã": "code", "lnst": "profit", "lntt": "profit", "lng": "profit",
+             "dtt": "revenue", "gvhb": "cost", "vcsh": "value", "tts": "value", "cổ tức": "amount",
+             "eps": "price", "bvps": "price", "p/e": "multiple", "p/b": "multiple",
+             "lần": "multiple", "roe": "rate", "roa": "rate", "lợi suất": "yield",
+             "%htkh": "%", "htkh": "rate", "mã số": "code"}  # fmt: skip
 _VI_PATTERN = re.compile(
     r"(?<!\w)(" + "|".join(sorted(map(re.escape, _VI_WORDS), key=len, reverse=True)) + r")(?!\w)"
 )
@@ -127,7 +131,7 @@ def infer_format(header: str, values: Sequence[object]) -> tuple[str | None, str
 
 INTENTS = ("auto", "compare", "rank", "trend", "share", "relationship", "table")
 MAX_BAR_LABEL = 12  # longer category labels read better on horizontal bars
-MAX_SLICES = 5
+MAX_SLICES = 4  # doughnut parts: more read better as sorted bars
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +197,8 @@ class KpiSpec:
     fmt: str = ""  # named format, or '' to infer
     vs: str = ""  # comparison column ('A/B' for a ratio): the note shows the change
     vs_label: str = "prior"  # what the change is against, e.g. 'FY2024' or 'budget'
+    plan: str = ""  # plan/target/budget column ('A/B' for a ratio): the note shows attainment
+    plan_label: str = "plan"
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,35 +210,40 @@ class ChartSpec:
     title: str = ""
 
 
+_COMPARE_PREFIXES = ("vs:", "plan:")
+
+
 def parse_kpi(item: str) -> KpiSpec:
-    """'Label=agg:Column|fmt|vs:Prior column:label', 'Label=ratio:A/B|vs:C/D',
-    'Label==SUM(...)', 'Orders=count', 'Revenue'."""
+    """'Label=agg:Column|fmt|vs:Prior column:label|plan:Plan column:label',
+    'Label=ratio:A/B|vs:C/D', 'Label==SUM(...)', 'Orders=count', 'Revenue'."""
     spec = _parse_kpi_body(item)
     segments = [s.strip().lower() for s in item.split("|")[1:]]
-    compared = sum(1 for s in segments if s.startswith("vs:"))
-    if compared > 1 or len(segments) - compared > 1:
+    counts = {p: sum(1 for s in segments if s.startswith(p)) for p in _COMPARE_PREFIXES}
+    formats_given = len(segments) - sum(counts.values())
+    if max(counts.values()) > 1 or formats_given > 1:
         raise SlimError(
             ErrorCode.BAD_ARGUMENT,
-            f"KPI '{item}': only one format and one 'vs:' comparison may follow '|'",
-            hint="e.g. 'Profit=sum:Profit 2025|number1|vs:Profit 2024:2024'",
+            f"KPI '{item}': at most one format, one 'vs:' and one 'plan:' may follow '|'",
+            hint="e.g. 'Revenue=sum:Rev 2025|number1|vs:Rev 2024:2024|plan:Rev budget:budget'",
         )
-    vs = _comparison(item, spec)
-    return replace(spec, vs=vs[0], vs_label=vs[1]) if vs[0] else spec
+    vs = _comparison(item, spec, "vs:", "prior")
+    plan = _comparison(item, spec, "plan:", "plan")
+    return replace(spec, vs=vs[0], vs_label=vs[1], plan=plan[0], plan_label=plan[1])
 
 
-def _comparison(item: str, spec: KpiSpec) -> tuple[str, str]:
-    """The 'vs:Column[:label]' segment -> (column, label); ('', 'prior') when absent."""
+def _comparison(item: str, spec: KpiSpec, prefix: str, default: str) -> tuple[str, str]:
+    """A 'vs:Column[:label]' or 'plan:Column[:label]' segment -> (column, label)."""
     segments = [s.strip() for s in item.split("|")[1:]]
-    found = [s[3:].strip() for s in segments if s.lower().startswith("vs:")]
+    found = [s[len(prefix) :].strip() for s in segments if s.lower().startswith(prefix)]
     if not found:
-        return "", "prior"
+        return "", default
     column, _, label = found[0].partition(":")
-    column, label = column.strip(), label.strip() or "prior"
+    column, label = column.strip(), label.strip() or default
     if spec.agg in ("formula", "count") or not column:
         raise SlimError(
             ErrorCode.BAD_ARGUMENT,
-            f"KPI '{item}': 'vs:' needs a column and works with sum/avg/min/max/ratio",
-            hint="e.g. 'Revenue=sum:Revenue 2025|vs:Revenue 2024:2024'",
+            f"KPI '{item}': '{prefix}' needs a column and works with sum/avg/min/max/ratio",
+            hint=f"e.g. 'Revenue=sum:Revenue 2025|{prefix}Revenue 2024:2024'",
         )
     if (spec.agg == "ratio") != ("/" in column):
         raise SlimError(
@@ -246,7 +257,7 @@ def _comparison(item: str, spec: KpiSpec) -> tuple[str, str]:
 def _parse_kpi_body(item: str) -> KpiSpec:
     parts = item.split("|")
     body = parts[0]
-    fmt = next((p for p in parts[1:] if not p.strip().lower().startswith("vs:")), "")
+    fmt = next((p for p in parts[1:] if not p.strip().lower().startswith(_COMPARE_PREFIXES)), "")
     label, eq, rest = body.partition("=")
     label, rest, fmt = label.strip(), rest.strip(), fmt.strip().lower()
     if not label:

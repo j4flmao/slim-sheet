@@ -33,7 +33,8 @@ from slim_sheet.services.design import TableBlock, column_values
 MAX_MESSAGES, MAX_MESSAGE_CHARS = 5, 200
 TABLE_ROWS = 10
 _LOWER_IS_BETTER = {"cost", "costs", "expense", "expenses", "churn", "debt", "loss", "losses",
-                    "spend", "spending", "defects", "returns", "complaints", "overdue"}  # fmt: skip
+                    "spend", "spending", "defects", "returns", "complaints", "overdue", "opex",
+                    "attrition", "leavers", "lead"}  # fmt: skip
 _AGG_FUNCS = {"sum": "SUM", "avg": "AVERAGE", "min": "MIN", "max": "MAX"}
 _IFS = {"sum": "SUMIFS", "avg": "AVERAGEIFS", "min": "MINIFS", "max": "MAXIFS"}
 
@@ -78,35 +79,60 @@ class ReportData:
 
 @dataclass(frozen=True, slots=True)
 class Comparison:
-    label: str  # what the KPI is compared with, e.g. 'FY2024'
+    label: str  # what the KPI is compared with, e.g. 'FY2024' or 'plan'
     prior: str  # Excel expression of the comparison value (no leading '=')
     prior_value: float | None  # the same value computed now, for the agent's reply
     points: bool  # a ratio changes in percentage points, a value in percent
+    attainment: bool = False  # vs a plan/target: 107.3% of plan (100% is on plan)
 
 
-def kpi_comparison(spec: KpiSpec, data: ReportData) -> Comparison:
-    label = spec.vs_label
+def kpi_comparison(spec: KpiSpec, data: ReportData, plan: bool = False) -> Comparison:
+    """The KPI against `spec.vs` (a change) or, with `plan`, against `spec.plan`."""
+    column, label = (spec.plan, spec.plan_label) if plan else (spec.vs, spec.vs_label)
     if spec.agg == "ratio":
-        top, _, bottom = spec.vs.partition("/")
+        top, _, bottom = column.partition("/")
         num, den = data.col(top.strip()), data.col(bottom.strip())
         prior = f"SUM({data.ref(num)})/SUM({data.ref(den)})"
         total = sum(data.numbers(den))
         value = sum(data.numbers(num)) / total if total else None
         return Comparison(label, prior, value, points=True)
-    col = data.col(spec.vs)
+    col = data.col(column)
     nums = data.numbers(col)
     prior = f"{_AGG_FUNCS[spec.agg]}({data.ref(col)})"
     value = reduce_values(nums, spec.agg) if nums else None
-    return Comparison(label, prior, value, points=False)
+    return Comparison(label, prior, value, points=False, attainment=plan)
 
 
-def comparison_formula(comparison: Comparison, value_cell: str) -> str:
+# (points, change, multiple, attainment) phrasing; Excel formats keep the reader's separators
+_PHRASES = {
+    "en": ('" pts vs {l}"', '" vs {l}"', '" vs {l}"', '" of {l}"', ""),
+    "vi": ('" điểm % so với {l}"', '" so với {l}"', '" so với {l}"', '" {l}"', '"Hoàn thành "&'),
+}
+
+
+def comparison_formula(comparison: Comparison, value_cell: str, locale: str = "en") -> str:
+    """A live note: '+15.6% vs FY2024', '2.4x vs FY2024', '+1.8 pts vs FY2024' or
+    '107.3% of plan' (Vietnamese: 'so với cùng kỳ', 'Hoàn thành 107,3% KH')."""
     label = comparison.label.replace('"', '""')
+    points, change, multiple, attained, lead = (
+        p.replace("{l}", label) for p in _PHRASES.get(locale, _PHRASES["en"])
+    )
+    ratio = f"{value_cell}/({comparison.prior})"
     if comparison.points:
-        change = f'TEXT(({value_cell}-({comparison.prior}))*100,"+0.0;-0.0;0.0")'
-        return f'=IFERROR({change}&" pts vs {label}","n/a")'
-    change = f'TEXT({value_cell}/({comparison.prior})-1,"+0.0%;-0.0%;0.0%")'
-    return f'=IFERROR({change}&" vs {label}","n/a")'
+        text = f'TEXT(({value_cell}-({comparison.prior}))*100,"+0.0;-0.0;0.0")&{points}'
+    elif comparison.attainment:
+        text = f'{lead}TEXT({ratio},"0.0%")&{attained}'
+    else:  # a jump of 2x or more reads better as a multiple than as +140%
+        text = (
+            f'IF({ratio}>=2,TEXT({ratio},"0.0""x""")&{multiple},'
+            f'TEXT({ratio}-1,"+0.0%;-0.0%;0.0%")&{change})'
+        )
+    return f'=IFERROR({text},"n/a")'
+
+
+def joined_notes(first: str, second: str) -> str:
+    """Two note formulas in one cell: '+15.6% vs FY2024 · 107.3% of plan'."""
+    return f'{first}&" · "&{second.removeprefix("=")}'
 
 
 def colour_comparison(
@@ -130,7 +156,12 @@ def describe_change(value: float | None, comparison: Comparison) -> str:
         return f", {(value - comparison.prior_value) * 100:+.1f} pts vs {comparison.label}"
     if not comparison.prior_value:
         return ""
-    return f", {value / comparison.prior_value - 1:+.1%} vs {comparison.label}"
+    ratio = value / comparison.prior_value
+    if comparison.attainment:
+        return f", {ratio:.1%} of {comparison.label}"
+    if ratio >= 2:
+        return f", {ratio:.1f}x {comparison.label}"
+    return f", {ratio - 1:+.1%} vs {comparison.label}"
 
 
 # --- key messages -------------------------------------------------------------------------
@@ -206,7 +237,6 @@ def _table_head(
     style_cell(
         ws.cell(row=top, column=cols[0]), RoleStyle(12, True, brand.ink, font="heading"), brand
     )
-    ws.merge_cells(start_row=top + 1, start_column=cols[0], end_row=top + 1, end_column=cols[0] + 1)
     for col, text in zip(cols, heads, strict=True):
         cell = ws.cell(row=top + 1, column=col, value=text)
         style_cell(cell, role_style("header", brand), brand)
@@ -240,12 +270,11 @@ def _table_row(
     fmt: str,
     brand: Brand,
 ) -> None:
-    ws.merge_cells(start_row=row, start_column=cols[0], end_row=row, end_column=cols[0] + 1)
     name_cell = ws.cell(row=row, column=cols[0], value=name)
     key = f"${index_to_col(cols[0] - 1)}${row}"
     value_cell = ws.cell(row=row, column=cols[1], value=to_file(value_of.replace("{key}", key)))
     value_cell.number_format = fmt
-    cells = [name_cell, value_cell]
+    cells = [name_cell, ws.cell(row=row, column=cols[0] + 1), value_cell]  # names overflow
     if total:
         value_ref = f"${index_to_col(cols[1] - 1)}${row}"
         share_cell = ws.cell(row=row, column=cols[2], value=f"=IFERROR({value_ref}/{total},0)")
@@ -266,10 +295,9 @@ def _table_total(
     agg: str,
 ) -> None:
     word = {"sum": "Total", "count": "Total", "avg": "Average", "min": "Lowest", "max": "Highest"}
-    ws.merge_cells(start_row=row, start_column=cols[0], end_row=row, end_column=cols[0] + 1)
     ws.cell(row=row, column=cols[0], value=f"{word[agg]} (all)")
     ws.cell(row=row, column=cols[1], value=f"={total}").number_format = fmt
     if share:
         ws.cell(row=row, column=cols[2], value=1).number_format = "0.0%"
-    for col in cols:
+    for col in (cols[0] + 1, *cols):  # the gutter after the name carries the rule too
         style_cell(ws.cell(row=row, column=col), role_style("total", brand), brand)
