@@ -256,7 +256,7 @@ def test_cell_guard_refuses_cell_bombs(tmp_path: Path, settings: Settings) -> No
             ws.cell(row=row, column=col, value=1)
     path = tmp_path / "bomb.xlsx"
     wb.save(path)
-    small = replace(settings, max_cells=10_000)
+    small = replace(settings, max_cells=10_000, max_edit_cells=10_000)
 
     # Act
     counted = limits.count_cells(path, 10**9)

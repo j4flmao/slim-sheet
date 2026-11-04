@@ -13,6 +13,7 @@ import zipfile
 from collections.abc import Iterator
 from pathlib import Path
 
+from slim_sheet.adapters.facts import remembered
 from slim_sheet.adapters.writers.sparklines import sheet_parts
 
 log = logging.getLogger(__name__)
@@ -31,7 +32,12 @@ _AUTHOR = re.compile(r"<(dc:creator|cp:lastModifiedBy)>([^<]+)</")
 
 
 def hidden_content(path: Path) -> list[str]:
-    """Plain-language findings; [] for non-xlsx files or packages that cannot be read."""
+    """Plain-language findings; [] for non-xlsx files or packages that cannot be read.
+    A big file is scanned once per version (the scan reads every sheet's XML)."""
+    return remembered(path, "hidden", lambda: _scan(path), keep=lambda _found: True)
+
+
+def _scan(path: Path) -> list[str]:
     try:
         with zipfile.ZipFile(path) as archive:
             names = set(archive.namelist())

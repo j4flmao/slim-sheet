@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pyarrow as pa
+import pyarrow.dataset as ds
 
 FileKey = tuple[str, int, int]
 
@@ -21,7 +22,7 @@ FileKey = tuple[str, int, int]
 class LoadedTable:
     name: str
     source: str
-    table: pa.Table
+    table: pa.Table | ds.Dataset  # a Dataset streams a big sheet from its Parquet cache
 
 
 def file_key(path: Path) -> FileKey:

@@ -8,6 +8,7 @@ from typing import Any, Self
 
 from python_calamine import CalamineWorkbook
 
+from slim_sheet.adapters.columnar import SheetStore, build_store, cached_store, is_big
 from slim_sheet.adapters.readers.base import pad_window
 from slim_sheet.core.errors import ErrorCode, SlimError
 from slim_sheet.core.models import CellRange, CellValue
@@ -29,6 +30,7 @@ class CalamineReader:
         self._cache: dict[str, Any] = {}
         self._rows_cache: dict[str, list[list[CellValue]]] = {}
         self._complete: dict[str, bool] = {}
+        self._stores: dict[str, SheetStore | None] = {}
 
     def sheets(self) -> list[tuple[str, bool]]:
         result = []
@@ -42,7 +44,24 @@ class CalamineReader:
             self._cache[name] = self._wb.get_sheet_by_name(name)
         return self._cache[name]
 
+    def store(self, sheet: str) -> SheetStore | None:
+        """The columnar cache of a big sheet (built on first use); None for normal sheets."""
+        if sheet not in self._stores:
+            found = cached_store(self._path, sheet)
+            if found is None:
+                used = self._used(sheet)
+                if used is not None and is_big(used):
+                    found = build_store(self._path, sheet, self._sheet(sheet), used,
+                                        self.merged_count(sheet))  # fmt: skip
+                    self._cache.pop(sheet, None)  # the cache answers from now on
+            self._stores[sheet] = found
+        return self._stores[sheet]
+
     def used_range(self, sheet: str) -> CellRange | None:
+        store = self.store(sheet)
+        return store.used if store is not None else self._used(sheet)
+
+    def _used(self, sheet: str) -> CellRange | None:
         ws = self._sheet(sheet)
         if ws.start is None or ws.end is None or ws.height == 0:
             return None
@@ -50,10 +69,16 @@ class CalamineReader:
         return CellRange(int(top), int(left), int(bottom), int(right))
 
     def merged_count(self, sheet: str) -> int:
+        store = self._stores.get(sheet)
+        if store is not None:
+            return store.merged
         ranges = self._sheet(sheet).merged_cell_ranges
         return len(ranges) if ranges else 0
 
     def read(self, sheet: str, window: CellRange) -> list[list[CellValue]]:
+        store = self.store(sheet)
+        if store is not None:
+            return store.read(window)
         rows = self._rows(sheet, window.bottom + 1)
         return pad_window(rows, window, row_offset=0, col_offset=0)
 
@@ -73,6 +98,7 @@ class CalamineReader:
     def close(self) -> None:
         self._cache.clear()
         self._rows_cache.clear()
+        self._stores.clear()
         self._wb.close()
 
     def __enter__(self) -> Self:

@@ -5,6 +5,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pyarrow.parquet as pq
+
+from slim_sheet.adapters.columnar import SheetStore
 from slim_sheet.adapters.readers import SheetReader
 from slim_sheet.core.a1 import format_range, index_to_col
 from slim_sheet.core.detect import guess_header_row
@@ -32,6 +35,10 @@ class RegionTable:
 
 
 def extract_tables(reader: SheetReader, sheet: str) -> list[RegionTable]:
+    store = getattr(reader, "store", None)
+    big = store(sheet) if store is not None else None
+    if big is not None:  # one table: the header found in the head rows, the Parquet body
+        return [_big_table(big)]
     used = reader.used_range(sheet)
     if used is None:
         return []
@@ -45,6 +52,17 @@ def extract_tables(reader: SheetReader, sheet: str) -> list[RegionTable]:
         name = sheet if index == 0 else f"{sheet}.{index + 1}"
         tables.append(_table(name, sheet, region, block))
     return tables
+
+
+def _big_table(store: SheetStore) -> RegionTable:
+    table = pq.read_table(store.parquet)
+    columns = [column.to_pylist() for column in table.columns]
+    top = store.body_top - 1 if store.has_header else store.body_top
+    region = CellRange(top, store.used.left, store.used.bottom, store.used.right)
+    body = tuple(zip(*columns, strict=True))
+    return RegionTable(
+        store.sheet, store.sheet, region, store.columns, body, store.body_top, store.has_header
+    )
 
 
 def _table(name: str, sheet: str, region: CellRange, block: list[list[CellValue]]) -> RegionTable:

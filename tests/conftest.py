@@ -13,6 +13,14 @@ from slim_sheet.config import Settings
 ORDER_ROWS = 300
 
 
+@pytest.fixture(autouse=True)
+def private_cache(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sheet and fact caches go to a temp folder, never to the user's cache."""
+    monkeypatch.setenv("SLIM_SHEET_CACHE_DIR", str(tmp_path_factory.mktemp("cache")))
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(roots=(tmp_path.resolve(),), max_tokens=1500, max_cell_chars=40)

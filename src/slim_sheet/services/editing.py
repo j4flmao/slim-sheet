@@ -89,7 +89,7 @@ def edit_workbook(
     source = writable_source(path, settings)
     target = resolve_target(source, settings, out_path, overwrite)
     base = target if target.exists() else source
-    check_cells(base, settings.max_cells)
+    check_cells(base, settings.max_edit_cells, editing=True)
     wb = load_for_edit(base)
     lost = lost_features(base, wb)
     warnings = [f"saved copy drops {f} (openpyxl limitation)" for f in lost]

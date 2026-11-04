@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import duckdb
+import pyarrow.dataset as ds
 
 from slim_sheet.adapters.engine.duck import load_tables
 from slim_sheet.adapters.formats import sniff
@@ -142,6 +143,7 @@ def _table_export(
             "CSV output is UTF-8; encoding='utf-8-sig' adds the BOM Excel needs for accents",
             hint="Use encoding='utf-8-sig' (or leave it out)",
         )
-    export_table(chosen.table, target, sheet=chosen.name, delimiter=options.delimiter, bom=bom)
-    summary = f"table {chosen.name} ({chosen.source}): {chosen.table.num_rows} rows"
+    table = chosen.table.to_table() if isinstance(chosen.table, ds.Dataset) else chosen.table
+    export_table(table, target, sheet=chosen.name, delimiter=options.delimiter, bom=bom)
+    summary = f"table {chosen.name} ({chosen.source}): {table.num_rows} rows"
     return OutputResult(handle.display, target.name, summary, backup)
