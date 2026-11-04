@@ -10,11 +10,15 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any
 
+import openpyxl
 from openpyxl.styles import PatternFill
 
 from slim_sheet.adapters.brand import brand_for, resolve_brand
+from slim_sheet.adapters.sandbox import resolve_output
 from slim_sheet.adapters.writers.chart_refs import build_chart
 from slim_sheet.adapters.writers.chart_style import ChartText, style_chart
 from slim_sheet.adapters.writers.print_setup import print_dashboard
@@ -37,18 +41,18 @@ from slim_sheet.core.models import CellRange, OutputResult
 from slim_sheet.core.report_spec import (
     ChartSpec,
     KpiSpec,
-    aggregate,
     choose_chart,
     infer_format,
     insight_title,
     order,
     parse_chart,
     parse_kpi,
-    reduce_values,
 )
 from slim_sheet.services.design import find_table, style_block
 from slim_sheet.services.editing import Change, edit_workbook, get_sheet
 from slim_sheet.services.report_blocks import (
+    ColumnarData,
+    Data,
     ReportData,
     check_messages,
     colour_comparison,
@@ -59,8 +63,11 @@ from slim_sheet.services.report_blocks import (
     table_slot,
     write_messages,
 )
+from slim_sheet.services.tables import big_store
+from slim_sheet.services.workbook import open_file
 
 MAX_KPIS, MAX_CHARTS = 6, 6
+MAX_SCATTER_POINTS = 500
 MAX_BARS = 12  # longer rankings keep the top 11 and fold the rest into "Other"
 TILE_WIDTH, GUTTER, MARGIN = 22, 2, 2
 CHART_WIDTH_CM, CHART_HEIGHT_CM, CHART_ROWS, CHART_TOP = 13.6, 7.6, 16, 8
@@ -91,33 +98,95 @@ def build_report(
     said = check_messages(messages or [])
     chosen, explicit = resolve_brand(brand, settings)
 
+    with open_file(path, settings) as handle:
+        store = big_store(handle, data_sheet)
+        display, source_path = handle.display, handle.path
+    plan = _Plan(title, subtitle, sheet, kpi_specs, chart_specs, said, chosen, explicit)
+    if store is not None:  # too big to edit in place: the dashboard goes to its own workbook
+        data = ColumnarData(store, display)
+        return _report_file(source_path, data, plan, settings, out_path, overwrite)
+
     def mutate(wb: Any) -> Change:
-        look = brand_for(wb, chosen, explicit)
         data = _source(wb, data_sheet)
-        style_block(data.ws, data.block, "data", look, "auto")
-        board = _fresh_sheet(wb, sheet, 0)
-        helper = _fresh_sheet(wb, f"{sheet} data"[:31], None)
-        helper.sheet_properties.tabColor = f"FF{CONTEXT_GREY}"
-        used = _used_columns(kpi_specs, chart_specs)
-        _layout(board, look, title, subtitle or _default_subtitle(data, used))
-        lines = [_tile(board, i, spec, data, look) for i, spec in enumerate(kpi_specs)]
-        top = write_messages(board, said, CHART_TOP, look, "Key messages") if said else CHART_TOP
-        row = 1
-        for i, spec in enumerate(chart_specs):
-            line, row = _slot(board, helper, i, spec, data, look, row, top)
-            lines.append(line)
-        last = _footer(board, look, data, len(chart_specs), top, helper.title)
-        print_dashboard(board, CellRange(0, 0, last - 1, LAST_GRID_COL - 1), title)
-        apply_brand(wb, look, force=explicit)
-        _document_properties(wb, title, look)
-        wb.active = 0
-        rows = data.last - data.first + 1
-        head = f"built {board.title} (brand {look.name}) from {data.ws.title} ({rows} rows)"
-        if said:
-            head += f"; {len(said)} key message(s)"
-        return Change(head + "".join(f"\n- {line}" for line in lines))
+        style_block(data.ws, data.block, "data", brand_for(wb, chosen, explicit), "auto")
+        return _compose(wb, data, plan)
 
     return edit_workbook(path, settings, f"build_report {sheet}", mutate, out_path, overwrite)
+
+
+@dataclass(frozen=True, slots=True)
+class _Plan:
+    title: str
+    subtitle: str | None
+    sheet: str
+    kpis: list[KpiSpec]
+    charts: list[ChartSpec]
+    messages: list[str]
+    brand: Any
+    explicit: bool
+
+
+def _compose(wb: Any, data: Data, plan: _Plan) -> Change:
+    """Dashboard and chart-data sheets in `wb`, from `data` (a sheet or a big sheet's cache)."""
+    look = brand_for(wb, plan.brand, plan.explicit)
+    board = _fresh_sheet(wb, plan.sheet, 0)
+    helper = _fresh_sheet(wb, f"{plan.sheet} data"[:31], None)
+    helper.sheet_properties.tabColor = f"FF{CONTEXT_GREY}"
+    used = _used_columns(plan.kpis, plan.charts)
+    _layout(board, look, plan.title, plan.subtitle or _default_subtitle(data, used))
+    lines = [_tile(board, i, spec, data, look) for i, spec in enumerate(plan.kpis)]
+    said = plan.messages
+    top = write_messages(board, said, CHART_TOP, look, "Key messages") if said else CHART_TOP
+    row = 1
+    for i, spec in enumerate(plan.charts):
+        line, row = _slot(board, helper, i, spec, data, look, row, top)
+        lines.append(line)
+    last = _footer(board, look, data, len(plan.charts), top, helper.title)
+    print_dashboard(board, CellRange(0, 0, last - 1, LAST_GRID_COL - 1), plan.title)
+    apply_brand(wb, look, force=plan.explicit)
+    _document_properties(wb, plan.title, look)
+    wb.active = 0
+    head = f"built {board.title} (brand {look.name}) from {data.title} ({data.rows} rows)"
+    if said:
+        head += f"; {len(said)} key message(s)"
+    return Change(head + "".join(f"\n- {line}" for line in lines))
+
+
+def _report_file(
+    source: Path,
+    data: ColumnarData,
+    plan: _Plan,
+    settings: Settings,
+    out_path: str | None,
+    overwrite: bool,
+) -> OutputResult:
+    """A new workbook holding the dashboard of a big sheet (the source is never loaded)."""
+    target = resolve_output(out_path or f"{source.stem}.report.xlsx", settings, source.parent)
+    if target.suffix.lower() != ".xlsx":
+        raise SlimError(ErrorCode.BAD_ARGUMENT, "The report of a big sheet is an .xlsx file",
+                        hint=f"e.g. out_path='{source.stem}.report.xlsx'")  # fmt: skip
+    if target.exists() and not overwrite:
+        raise SlimError(
+            ErrorCode.BAD_ARGUMENT,
+            f"'{target.name}' exists",
+            hint="Pass overwrite=true to rebuild it, or another out_path.",
+        )
+    if not target.exists():
+        blank = openpyxl.Workbook()
+        blank.save(target)
+
+    def mutate(wb: Any) -> Change:
+        for name in list(wb.sheetnames):
+            if name not in (plan.sheet, f"{plan.sheet} data"[:31]):
+                wb.remove(wb[name])
+        change = _compose(wb, data, plan)
+        note = (f"{data.rows:,} rows of {data.source} were aggregated in batches; tiles and "
+                "tables hold computed values (rerun build_report to refresh)")  # fmt: skip
+        return Change(change.summary, (note,))
+
+    result = edit_workbook(str(target), settings, f"build_report {plan.sheet}", mutate,
+                           overwrite=True)  # fmt: skip
+    return replace(result, source=source.name)
 
 
 def _check_counts(kpis: list[KpiSpec], charts: list[ChartSpec], sheet: str, data: str) -> None:
@@ -159,12 +228,12 @@ def _fresh_sheet(wb: Any, name: str, index: int | None) -> Any:
     return wb.create_sheet(name, index)
 
 
-def _default_subtitle(data: ReportData, columns: list[str]) -> str:
+def _default_subtitle(data: Data, columns: list[str]) -> str:
     """Source, units and build date: a reader must know what the numbers are in."""
     today = dt.date.today().isoformat()
     units = units_in(columns)
     unit = f" · Units: {', '.join(units)}" if units else ""
-    return f"Source: {data.ws.title} ({data.last - data.first + 1} rows){unit} · Built {today}"
+    return f"Source: {data.title} ({data.rows:,} rows){unit} · Built {today}"
 
 
 def units_in(headers: list[str]) -> list[str]:
@@ -203,7 +272,7 @@ def _layout(ws: Any, brand: Brand, title: str, subtitle: str) -> None:
 # --- KPI tiles ----------------------------------------------------------------------------
 
 
-def _tile(ws: Any, index: int, spec: KpiSpec, data: ReportData, brand: Brand) -> str:
+def _tile(ws: Any, index: int, spec: KpiSpec, data: Data, brand: Brand) -> str:
     formula, value, note, key = _kpi_parts(spec, data)
     fmt = formats(brand)[scaled_format(key, value or 0.0)]
     col = index_to_col(1 + 2 * index)
@@ -243,34 +312,43 @@ def _plain(value: float) -> str:
     return f"{value:,.4f}".rstrip("0").rstrip(".") if abs(value) < 1 else f"{value:,.1f}"
 
 
-def _kpi_parts(spec: KpiSpec, data: ReportData) -> tuple[str, float | None, str, str]:
+def _kpi_parts(spec: KpiSpec, data: Data) -> tuple[str | float, float | None, str, str]:
+    """-> (formula, or the computed value for a big sheet; value now; description; format)."""
+    formula, value, note, key = _kpi_formula(spec, data)
+    if data.live or spec.agg == "formula":
+        return formula, value, note, key
+    return ("n/a" if value is None else value), value, note, key
+
+
+def _kpi_formula(spec: KpiSpec, data: Data) -> tuple[str, float | None, str, str]:
     """-> (formula, value now, description, format key)."""
     if spec.agg == "formula":
         check_formula(spec.formula, f"KPI {spec.label}")
         return spec.formula, None, "Custom formula", _fmt_key(spec.fmt, "integer")
     if spec.agg == "ratio":
         top, bottom = data.col(spec.column), data.col(spec.column2)
-        formula = f'=IFERROR(SUM({data.ref(top)})/SUM({data.ref(bottom)}),"n/a")'
-        num, den = _total(data.values(top)), _total(data.values(bottom))
+        formula = (
+            f'=IFERROR(SUM({data.ref(top)})/SUM({data.ref(bottom)}),"n/a")' if data.live else ""
+        )
+        num, den = data.total(top, "sum") or 0.0, data.total(bottom, "sum")
         value = num / den if den else None
         return formula, value, f"{spec.column} / {spec.column2}", _fmt_key(spec.fmt, "percent")
     if spec.agg == "count":
-        col = data.col(spec.column) if spec.column else data.block.rng.left
-        rows = sum(1 for v in data.values(col) if v not in (None, ""))
+        col = data.col(spec.column) if spec.column else _first_column(data)
+        rows = data.filled(col)
         what = f"Count of {spec.column}" if spec.column else "Rows"
-        return f"=COUNTA({data.ref(col)})", float(rows), what, _fmt_key(spec.fmt, "integer")
+        formula = f"=COUNTA({data.ref(col)})" if data.live else ""
+        return formula, float(rows), what, _fmt_key(spec.fmt, "integer")
     col = data.col(spec.column)
-    values = data.values(col)
-    nums = [float(v) for v in values if isinstance(v, int | float) and not isinstance(v, bool)]
     func = {"sum": "SUM", "avg": "AVERAGE", "min": "MIN", "max": "MAX"}[spec.agg]
-    value = reduce_values(nums, spec.agg) if nums else None
-    inferred = infer_format(spec.column, values)[0] or "integer"
+    value = data.total(col, spec.agg)
+    inferred = infer_format(spec.column, data.sample(col))[0] or "integer"
     if spec.agg == "avg" and inferred == "integer" and value is not None and abs(value) < 100:
         inferred = "number1"  # an average of whole numbers is rarely whole
     if inferred in ("number1", "number2") and value is not None:
         inferred = headline_decimals(value)
     word = {"sum": "Total", "avg": "Average", "min": "Lowest", "max": "Highest"}[spec.agg]
-    formula = f"={func}({data.ref(col)})"
+    formula = f"={func}({data.ref(col)})" if data.live else ""
     return formula, value, f"{word} {spec.column}", _fmt_key(spec.fmt, inferred)
 
 
@@ -280,8 +358,8 @@ def headline_decimals(value: float) -> str:
     return "integer" if size >= 1000 else "number1" if size >= 10 else "number2"
 
 
-def _total(values: list[object]) -> float:
-    return sum(float(v) for v in values if isinstance(v, int | float) and not isinstance(v, bool))
+def _first_column(data: Data) -> int:
+    return data.block.rng.left if isinstance(data, ReportData) else 0
 
 
 def _fmt_key(requested: str, fallback: str) -> str:
@@ -305,7 +383,7 @@ def _slot(
     helper: Any,
     index: int,
     spec: ChartSpec,
-    data: ReportData,
+    data: Data,
     brand: Brand,
     row: int,
     top: int,
@@ -319,16 +397,16 @@ def _slot(
 
 
 def _chart(
-    board: Any, helper: Any, anchor: str, spec: ChartSpec, data: ReportData, brand: Brand, row: int
+    board: Any, helper: Any, anchor: str, spec: ChartSpec, data: Data, brand: Brand, row: int
 ) -> tuple[str, int]:
     """Aggregate, write the block on the helper sheet, add a styled chart. -> (line, next row)."""
     category = data.col(spec.category)
     label = "Rows" if spec.value == "count" else spec.value
     if spec.intent == "relationship":
-        points = _scatter_points(data, category, data.col(spec.value))
+        points = data.pairs(category, data.col(spec.value), MAX_SCATTER_POINTS)
     else:
-        raw = data.values(data.col(spec.value)) if spec.value != "count" else data.values(category)
-        points = aggregate(list(zip(data.values(category), raw, strict=True)), spec.agg)
+        measure = None if spec.value == "count" else data.col(spec.value)
+        points = data.grouped(category, measure, spec.agg)
     choice_ = choose_chart(spec.intent, [p[0] for p in points], [p[1] for p in points])
     points = _fold(order(points, choice_.sort), choice_.kind, spec.agg)
     intent = (
@@ -361,14 +439,6 @@ def _chart(
         f"chart {anchor}: {choice_.kind} ({choice_.reason}), {len(points)} points, title '{title}'"
     )
     return line, row + len(points) + 4
-
-
-def _scatter_points(data: ReportData, x_col: int, y_col: int) -> list[tuple[object, float]]:
-    points: list[tuple[object, float]] = []
-    for x, y in zip(data.values(x_col), data.values(y_col), strict=True):
-        if isinstance(x, int | float) and isinstance(y, int | float) and not isinstance(y, bool):
-            points.append((x, float(y)))
-    return points[:500]
 
 
 def _x_format(header: str, points: list[tuple[object, float]], brand: Brand) -> str | None:
@@ -404,14 +474,16 @@ def _write_block(
     return f"A{row + 1}:B{row + 1 + len(points)}"
 
 
-def _footer(ws: Any, brand: Brand, data: ReportData, n_slots: int, top: int, helper: str) -> int:
+def _footer(ws: Any, brand: Brand, data: Data, n_slots: int, top: int, helper: str) -> int:
     """Source line under the grid; -> its row (the last row of the printed page)."""
     row = top + ((n_slots + 1) // 2) * CHART_ROWS + (1 if n_slots else 0)
-    text = (
-        f"Source: {data.ws.title}!{index_to_col(data.block.rng.left)}{data.first - 1}:"
-        f"{index_to_col(data.block.rng.right)}{data.last} ({data.last - data.first + 1} rows). "
-        f"KPI tiles and tables are live formulas; chart figures are on the '{helper}' sheet."
+    how = (
+        "KPI tiles and tables are live formulas"
+        if data.live
+        else f"KPI tiles and tables were computed from all rows on {dt.date.today().isoformat()}"
     )
+    figures = f"chart figures are on the '{helper}' sheet"
+    text = f"Source: {data.source} ({data.rows:,} rows). {how}; {figures}."
     ws.cell(row=row, column=2, value=text)
     style_cell(ws.cell(row=row, column=2), role_style("note", brand), brand)
     return row

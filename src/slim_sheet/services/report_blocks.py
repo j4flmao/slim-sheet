@@ -11,9 +11,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import duckdb
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Font
 
+from slim_sheet.adapters.columnar import SheetStore
 from slim_sheet.adapters.writers.theme import style_cell
 from slim_sheet.core.a1 import index_to_col
 from slim_sheet.core.design import Brand, RoleStyle, formats, role_style
@@ -35,6 +37,8 @@ TABLE_ROWS = 10
 _LOWER_IS_BETTER = {"cost", "costs", "expense", "expenses", "churn", "debt", "loss", "losses",
                     "spend", "spending", "defects", "returns", "complaints", "overdue", "opex",
                     "attrition", "leavers", "lead"}  # fmt: skip
+SAMPLE_VALUES = 2000  # values a format is inferred from
+_SQL_AGGS = {"sum": "sum", "avg": "avg", "min": "min", "max": "max"}
 _AGG_FUNCS = {"sum": "SUM", "avg": "AVERAGE", "min": "MIN", "max": "MAX"}
 _IFS = {"sum": "SUMIFS", "avg": "AVERAGEIFS", "min": "MINIFS", "max": "MAXIFS"}
 
@@ -59,6 +63,21 @@ class ReportData:
             hint=f"Columns: {', '.join(h for h in self.block.headers if h)}",
         )
 
+    live = True  # formulas can point at the data
+
+    @property
+    def title(self) -> str:
+        return str(self.ws.title)
+
+    @property
+    def rows(self) -> int:
+        return self.last - self.first + 1
+
+    @property
+    def source(self) -> str:
+        left, right = index_to_col(self.block.rng.left), index_to_col(self.block.rng.right)
+        return f"{self.title}!{left}{self.first - 1}:{right}{self.last}"
+
     def ref(self, col: int) -> str:
         letter = index_to_col(col)
         return f"{quote_sheet(self.ws.title)}!${letter}${self.first}:${letter}${self.last}"
@@ -73,6 +92,127 @@ class ReportData:
             if isinstance(v, int | float) and not isinstance(v, bool)
         ]
 
+    def total(self, col: int, agg: str) -> float | None:
+        """sum | avg | min | max of the numbers in a column; None when it has none."""
+        nums = self.numbers(col)
+        return reduce_values(nums, agg) if nums else None
+
+    def filled(self, col: int) -> int:
+        return sum(1 for v in self.values(col) if v not in (None, ""))
+
+    def grouped(self, category: int, value: int | None, agg: str) -> list[tuple[object, float]]:
+        """Per category (first-seen order, blanks skipped); `value` None counts rows."""
+        raw = self.values(category) if value is None else self.values(value)
+        return aggregate(list(zip(self.values(category), raw, strict=True)), agg)
+
+    def pairs(self, x: int, y: int, limit: int) -> list[tuple[object, float]]:
+        """The first `limit` rows where both x and y are numbers (scatter points)."""
+        out: list[tuple[object, float]] = []
+        for a, b in zip(self.values(x), self.values(y), strict=True):
+            if (
+                isinstance(a, int | float)
+                and isinstance(b, int | float)
+                and not isinstance(b, bool)
+            ):
+                out.append((a, float(b)))
+                if len(out) == limit:
+                    break
+        return out
+
+    def sample(self, col: int, limit: int = SAMPLE_VALUES) -> list[object]:
+        return self.values(col)[:limit]
+
+
+@dataclass(frozen=True, slots=True)
+class ColumnarData:
+    """A big sheet or file answered by DuckDB over its Parquet cache: aggregates run in SQL,
+    never cell by cell. The report goes to another workbook, so tiles and tables hold computed
+    values instead of formulas (`live` False)."""
+
+    store: SheetStore
+    path_name: str
+    live = False
+
+    @property
+    def title(self) -> str:
+        return self.store.sheet
+
+    @property
+    def rows(self) -> int:
+        return self.store.rows
+
+    @property
+    def source(self) -> str:
+        return f"{self.path_name} / {self.store.source}"
+
+    def col(self, name: str) -> int:
+        wanted = name.strip().casefold()
+        for index, header in enumerate(self.store.columns):
+            if header.casefold() == wanted:
+                return index
+        raise SlimError(
+            ErrorCode.BAD_ARGUMENT,
+            f"No column '{name}' in {self.store.sheet}",
+            hint=f"Columns: {', '.join(self.store.columns)}",
+        )
+
+    def ref(self, col: int) -> str:
+        raise SlimError(ErrorCode.BAD_ARGUMENT, "a big sheet has no cell references in its report")
+
+    def _sql(self, sql: str) -> list[tuple[Any, ...]]:
+        source = str(self.store.parquet).replace("'", "''")  # our own cache file
+        con = duckdb.connect(":memory:")
+        try:
+            con.execute(
+                f"CREATE VIEW t AS SELECT * FROM read_parquet('{source}', file_row_number = true)"
+            )
+            return con.execute(sql).fetchall()
+        finally:
+            con.close()
+
+    def _q(self, col: int) -> str:
+        return '"' + self.store.columns[col].replace('"', '""') + '"'
+
+    def _num(self, col: int) -> str:
+        return f"TRY_CAST({self._q(col)} AS DOUBLE)"
+
+    def total(self, col: int, agg: str) -> float | None:
+        value = self._sql(f"SELECT {_SQL_AGGS[agg]}({self._num(col)}) FROM t")[0][0]
+        return None if value is None else float(value)
+
+    def filled(self, col: int) -> int:
+        q = self._q(col)
+        row = self._sql(
+            f"SELECT count(*) FROM t WHERE {q} IS NOT NULL AND CAST({q} AS VARCHAR) <> ''"
+        )
+        return int(row[0][0])
+
+    def grouped(self, category: int, value: int | None, agg: str) -> list[tuple[object, float]]:
+        cat = self._q(category)
+        counting = value is None or agg == "count"
+        if counting or value is None:
+            measure = "count(*)"
+        else:
+            measure = f"coalesce({_SQL_AGGS[agg]}({self._num(value)}), 0)"
+        rows = self._sql(
+            f"SELECT {cat}, {measure} FROM t WHERE {cat} IS NOT NULL AND CAST({cat} AS VARCHAR) "
+            f"<> '' GROUP BY {cat} ORDER BY min(file_row_number)"
+        )
+        return [(c, float(v)) for c, v in rows]
+
+    def pairs(self, x: int, y: int, limit: int) -> list[tuple[object, float]]:
+        rows = self._sql(
+            f"SELECT {self._num(x)}, {self._num(y)} FROM t WHERE {self._num(x)} IS NOT NULL "
+            f"AND {self._num(y)} IS NOT NULL ORDER BY file_row_number LIMIT {int(limit)}"
+        )
+        return [(a, float(b)) for a, b in rows]
+
+    def sample(self, col: int, limit: int = SAMPLE_VALUES) -> list[object]:
+        return [r[0] for r in self._sql(f"SELECT {self._q(col)} FROM t LIMIT {int(limit)}")]
+
+
+Data = ReportData | ColumnarData
+
 
 # --- KPI comparison -----------------------------------------------------------------------
 
@@ -86,21 +226,25 @@ class Comparison:
     attainment: bool = False  # vs a plan/target: 107.3% of plan (100% is on plan)
 
 
-def kpi_comparison(spec: KpiSpec, data: ReportData, plan: bool = False) -> Comparison:
+def kpi_comparison(spec: KpiSpec, data: Data, plan: bool = False) -> Comparison:
     """The KPI against `spec.vs` (a change) or, with `plan`, against `spec.plan`."""
     column, label = (spec.plan, spec.plan_label) if plan else (spec.vs, spec.vs_label)
     if spec.agg == "ratio":
         top, _, bottom = column.partition("/")
         num, den = data.col(top.strip()), data.col(bottom.strip())
-        prior = f"SUM({data.ref(num)})/SUM({data.ref(den)})"
-        total = sum(data.numbers(den))
-        value = sum(data.numbers(num)) / total if total else None
+        total = data.total(den, "sum")
+        value = (data.total(num, "sum") or 0.0) / total if total else None
+        prior = f"SUM({data.ref(num)})/SUM({data.ref(den)})" if data.live else _literal(value)
         return Comparison(label, prior, value, points=True)
     col = data.col(column)
-    nums = data.numbers(col)
-    prior = f"{_AGG_FUNCS[spec.agg]}({data.ref(col)})"
-    value = reduce_values(nums, spec.agg) if nums else None
+    value = data.total(col, spec.agg)
+    prior = f"{_AGG_FUNCS[spec.agg]}({data.ref(col)})" if data.live else _literal(value)
     return Comparison(label, prior, value, points=False, attainment=plan)
+
+
+def _literal(value: float | None) -> str:
+    """A computed comparison value written into the formula (no cell holds the data)."""
+    return "NA()" if value is None else repr(float(value))
 
 
 # (points, change, multiple, attainment) phrasing; Excel formats keep the reader's separators
@@ -202,15 +346,13 @@ def write_messages(ws: Any, messages: list[str], top: int, brand: Brand, heading
 # --- top-N table --------------------------------------------------------------------------
 
 
-def table_slot(
-    ws: Any, spec: ChartSpec, data: ReportData, brand: Brand, left: int, top: int
-) -> str:
+def table_slot(ws: Any, spec: ChartSpec, data: Data, brand: Brand, left: int, top: int) -> str:
     """A ranked table in a chart slot: title, header, top rows and a total, all live formulas.
     `left` is the 1-based first grid column (B or H), `top` the slot's first row."""
     category = data.col(spec.category)
     counting = spec.value == "count"
-    raw = data.values(category) if counting else data.values(data.col(spec.value))
-    points = order(aggregate(list(zip(data.values(category), raw, strict=True)), spec.agg), "desc")
+    measure = None if counting else data.col(spec.value)
+    points = order(data.grouped(category, measure, spec.agg), "desc")
     shown = points[:TABLE_ROWS]
     label = "Rows" if counting else spec.value
     key = "integer" if counting else infer_format(label, [p[1] for p in points])[0] or "number1"
@@ -220,10 +362,15 @@ def table_slot(
     cols = (left, left + 2, left + 4) if share else (left, left + 2)
     heads = (spec.category, label, "Share") if share else (spec.category, label)
     _table_head(ws, top, cols, title, heads, brand)
-    value_of = _value_formula(spec, data, category, counting)
-    total = _total_formula(spec, data, category, counting)
-    for offset, (name, _value) in enumerate(shown, start=top + 2):
-        _table_row(ws, offset, cols, name, value_of, total if share else None, fmt, brand)
+    if data.live:
+        value_of = _value_formula(spec, data, category, counting)
+        total = _total_formula(spec, data, category, counting)
+    else:  # computed values: a big sheet stays in its own workbook
+        everything = reduce_values([p[1] for p in points], "sum" if counting else spec.agg)
+        total = repr(float(everything))
+    for offset, (name, value) in enumerate(shown, start=top + 2):
+        formula = value_of if data.live else f"={float(value)!r}"
+        _table_row(ws, offset, cols, name, formula, total if share else None, fmt, brand)
     end = top + 2 + len(shown)
     _table_total(ws, end, cols, total, share, fmt, brand, spec.agg)
     where = f"{index_to_col(left - 1)}{top}"
@@ -245,7 +392,7 @@ def _table_head(
     style_cell(ws.cell(row=top + 1, column=cols[0] + 1), role_style("header", brand), brand)
 
 
-def _value_formula(spec: ChartSpec, data: ReportData, category: int, counting: bool) -> str:
+def _value_formula(spec: ChartSpec, data: Data, category: int, counting: bool) -> str:
     """Formula template for one category's value; '{key}' is replaced by its cell."""
     keys = data.ref(category)
     if counting:
@@ -254,7 +401,7 @@ def _value_formula(spec: ChartSpec, data: ReportData, category: int, counting: b
     return f"={_IFS[spec.agg]}({values},{keys},{{key}})"
 
 
-def _total_formula(spec: ChartSpec, data: ReportData, category: int, counting: bool) -> str:
+def _total_formula(spec: ChartSpec, data: Data, category: int, counting: bool) -> str:
     if counting:
         return f"COUNTA({data.ref(category)})"
     return f"{_AGG_FUNCS[spec.agg]}({data.ref(data.col(spec.value))})"

@@ -87,7 +87,8 @@ def build_instructions(enabled: set[str]) -> str:
     )
     lines.append(
         "Edits go to <name>.slim.xlsx unless overwrite=true; undo reverts. "
-        "Responses are size-limited: follow 'next' cursors or offsets."
+        "Responses are size-limited: follow 'next' cursors or offsets. Big files are handled "
+        "in batches by the server: never sample, split or trim the data yourself."
     )
     if missing:
         lines.append(

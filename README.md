@@ -93,6 +93,26 @@ Rules behind the defaults (IBCS, finance colour coding, UK spreadsheet accessibi
 - **Flexible paths, safe by default**: give any folder in chat (no config change); system folders,
   AppData, dot-folders such as `.ssh` and non-spreadsheet files are refused. Read-only SQL with file access locked, no model-written code is executed, no network.
 
+## Big data
+
+slim-sheet batches big data by itself; the agent does not have to split or sample anything.
+The first call on a sheet of more than 500,000 cells (or a CSV/TSV/JSON file over 50 MB) converts it
+once, 50,000 rows at a time, into a Parquet cache keyed by the file's size and modification time.
+Every later call — `overview`, `read`, `query`, `profile`, `anomalies`, `pivot`, `convert`,
+`build_report` — runs on that cache through DuckDB, so a million-row workbook answers in under a
+second and a 10-million-row CSV in a few seconds, with memory in the hundreds of MB. An edited file is
+converted again.
+
+Measured on a laptop (13 columns; later calls use the cache):
+
+| Data | First call | `query` | `profile` | `anomalies` | `build_report` |
+|---|---|---|---|---|---|
+| 1,000,000-row xlsx (90 MB) | 27 s | 0.1 s | 0.6 s | 2.3 s | 0.3 s |
+| 10,000,000-row CSV (450 MB) | 1.8 s | 0.4 s | 2.5 s | 9.4 s | 0.8 s |
+
+`build_report` on a big sheet writes the dashboard to its own workbook (`<name>.report.xlsx`) with
+computed values, because editing a workbook of millions of cells in place needs gigabytes of memory.
+
 ## Configuration
 
 | Variable | Default | Meaning |
@@ -107,7 +127,10 @@ Rules behind the defaults (IBCS, finance colour coding, UK spreadsheet accessibi
 | `SLIM_SHEET_SOFFICE` | autodetect | LibreOffice binary for `recalc` |
 | `SLIM_SHEET_AUDIT_LOG` | — | JSONL audit log of every tool call (contents redacted) |
 | `SLIM_SHEET_RATE_LIMIT` | `120` | HTTP tool calls per minute per client (`0` = off) |
-| `SLIM_SHEET_MAX_CELLS` | `3000000` | refuse workbooks declaring more cells (`0` = off) |
+| `SLIM_SHEET_MAX_CELLS` | `50000000` | refuse to read workbooks with more value cells (`0` = off); formatted empty cells do not count |
+| `SLIM_SHEET_MAX_EDIT_CELLS` | `5000000` | refuse to edit workbooks with more value cells (editing loads the whole file into memory) |
+| `SLIM_SHEET_MAX_FILE_MB` | `2048` | refuse bigger files |
+| `SLIM_SHEET_CACHE_DIR` | user cache folder | where big sheets and files are cached as Parquet (`%LOCALAPPDATA%\slim-sheet`, `~/.cache/slim-sheet`) |
 | `SLIM_SHEET_BRAND` | `slim` | brand name (`slim`, `office`, `modern`, `mono`, `gov`) or path to a brand `.json` |
 
 Extras: `formula` (offline `evaluate` and `what_if`), `crypto` (encrypted xlsx), `numbers` (Apple Numbers), `images` (insert pictures with `annotate`), `all`.

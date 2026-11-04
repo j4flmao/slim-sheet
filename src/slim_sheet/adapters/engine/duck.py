@@ -12,7 +12,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import duckdb
+import pyarrow.dataset as ds
 
+from slim_sheet.adapters.columnar import FLAT_CACHE_BYTES, flat_parquet
 from slim_sheet.adapters.engine.arrow import to_arrow
 from slim_sheet.adapters.engine.cache import TABLE_CACHE, LoadedTable, file_key
 from slim_sheet.adapters.engine.tables import extract_tables
@@ -61,10 +63,16 @@ def load_tables(
     for sheet in selected:
         tables = TABLE_CACHE.get(key, sheet)
         if tables is None:
-            tables = [
-                LoadedTable(t.name, t.source, to_arrow(t.columns, t.body))
-                for t in extract_tables(reader, sheet)
-            ]
+            store = getattr(reader, "store", None)
+            big = store(sheet) if store is not None else None
+            tables = (
+                [LoadedTable(sheet, big.source, big.dataset())]  # streamed, never in memory
+                if big is not None
+                else [
+                    LoadedTable(t.name, t.source, to_arrow(t.columns, t.body))
+                    for t in extract_tables(reader, sheet)
+                ]
+            )
             TABLE_CACHE.put(key, sheet, tables)
         loaded.extend(tables)
     return loaded, [s for s in names if s not in selected]
@@ -93,6 +101,8 @@ def engine_from(tables: list[LoadedTable], unloaded: list[str] | None = None) ->
 
 
 def _load_flat(path: Path, fmt: FileFormat) -> LoadedTable:
+    if fmt != FileFormat.PARQUET and path.stat().st_size >= FLAT_CACHE_BYTES:
+        return LoadedTable(SHEET, path.name, ds.dataset(flat_parquet(path, fmt)))
     con = duckdb.connect(":memory:")
     try:
         table = con.execute(f"SELECT * FROM {SCAN[fmt]}", [str(path)]).to_arrow_table()

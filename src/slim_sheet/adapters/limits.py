@@ -1,9 +1,11 @@
 """Cell-count guard for xlsx-family packages (PLAN §11.10).
 
 A few-KB zip can declare millions of cells and make any full load (openpyxl, calamine) use
-gigabytes of memory. Before a workbook is opened, the sheet XML is streamed and its cell
-elements are counted, stopping as soon as the limit is passed. Results are cached per file
-version, so the check costs one pass per change.
+gigabytes of memory. Before a workbook is opened, the sheet XML is streamed and its cells
+holding a value (<v> or inline <is>) are counted, stopping as soon as the limit is passed;
+formatted-but-empty cells cost nothing to read and are not counted. Reads stream big sheets
+through the columnar cache, so their limit is high; edits load the whole workbook into memory
+and have their own, lower limit. Results are cached per file version.
 """
 
 from __future__ import annotations
@@ -12,11 +14,12 @@ import re
 import zipfile
 from pathlib import Path
 
+from slim_sheet.adapters.facts import remembered
 from slim_sheet.core.errors import ErrorCode, SlimError
 
 CHUNK = 4 * 1024 * 1024
 _SHEET_PART = re.compile(r"^xl/worksheets/[^/]+\.(xml|bin)$")
-_CELL = re.compile(rb"<c[ >/]")
+_CELL = re.compile(rb"<v>|<is>")  # cells that hold a value
 _cache: dict[tuple[str, int, int], int] = {}
 
 
@@ -26,6 +29,14 @@ def count_cells(path: Path, stop_after: int) -> int:
     key = (str(path), stat.st_mtime_ns, stat.st_size)
     if key in _cache:
         return _cache[key]
+    total = remembered(path, "value_cells", lambda: _count(path, stop_after),
+                       keep=lambda n: n <= stop_after)  # fmt: skip
+    _cache[key] = total
+    return total
+
+
+def _count(path: Path, stop_after: int) -> int:
+    """A complete count when it stays within `stop_after`, else a lower bound past it."""
     total = 0
     with zipfile.ZipFile(path) as archive:
         for info in archive.infolist():
@@ -34,7 +45,6 @@ def count_cells(path: Path, stop_after: int) -> int:
             total += _count_part(archive, info.filename, stop_after - total)
             if total > stop_after:
                 break
-    _cache[key] = total
     return total
 
 
@@ -50,18 +60,29 @@ def _count_part(archive: zipfile.ZipFile, name: str, budget: int) -> int:
     return found + len(_CELL.findall(tail))
 
 
-def check_cells(path: Path, limit: int) -> None:
-    """Refuse a package with more than `limit` cells (0 disables the check)."""
+def check_cells(path: Path, limit: int, editing: bool = False) -> None:
+    """Refuse a package with more than `limit` value cells (0 disables the check)."""
     if limit <= 0 or not zipfile.is_zipfile(path):
         return
     try:
         cells = count_cells(path, limit)
     except (zipfile.BadZipFile, OSError, KeyError):
         return  # not a readable package: the reader reports the real problem
-    if cells > limit:
+    if cells <= limit:
+        return
+    if editing:
         raise SlimError(
             ErrorCode.TOO_LARGE,
-            f"'{path.name}' has more than {limit:,} cells",
-            hint="Raise SLIM_SHEET_MAX_CELLS if this file is trusted, or export the sheet you "
-            "need to CSV/parquet in Excel first.",
+            f"'{path.name}' has more than {limit:,} cells: editing loads the whole workbook into "
+            "memory",
+            hint="Read tools (overview, read, query, profile, pivot, convert) work on it in "
+            "batches; build_report with out_path writes a dashboard of it to a new file. Raise "
+            "SLIM_SHEET_MAX_EDIT_CELLS only on a machine with enough memory (about 1 GB per "
+            "2 million cells). Do not cut the data down.",
         )
+    raise SlimError(
+        ErrorCode.TOO_LARGE,
+        f"'{path.name}' has more than {limit:,} cells",
+        hint="Raise SLIM_SHEET_MAX_CELLS if this file is trusted (big sheets are read in "
+        "batches from a cache). Do not cut the data down.",
+    )

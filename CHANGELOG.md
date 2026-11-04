@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Big data
+- Big sheets (over 500,000 cells) and big CSV/TSV/JSON files (over 50 MB) are converted once, in
+  batches of 50,000 rows, into a Parquet cache per file version; `overview`, `read`, `query`,
+  `profile`, `anomalies`, `pivot`, `convert` and `build_report` then run on it through DuckDB. A
+  1M-row workbook: `query` 25 s → 0.1 s, `read` 11 s → 0.0 s, memory 1.7 GB → under 0.5 GB.
+- `anomalies` on big data runs its six checks as SQL (1M rows: 19 s → 2 s; 10M-row CSV: 304 s → 9 s).
+- `build_report` on a big sheet or file writes the dashboard to `<name>.report.xlsx` with computed
+  values, aggregating in SQL (10M rows in under a second).
+- The cell guard counts cells that hold a value, not formatted empty cells, and reads and edits
+  have separate limits: `SLIM_SHEET_MAX_CELLS` (default 50M) and `SLIM_SHEET_MAX_EDIT_CELLS`
+  (default 5M); `SLIM_SHEET_MAX_FILE_MB` defaults to 2048. Errors tell agents not to cut data down.
+- Whole-file scans of big files (cell count, hidden content) are remembered per file version.
+
 ### Report standards (IBCS, WCAG, FAST/ICAEW, UK Analysis Function)
 - Accessible colour: chart series ordered so the first ones pass WCAG 3:1 (default palette
   reordered: Okabe-Ito orange and sky blue failed), text colours checked for 4.5:1 / 3:1,

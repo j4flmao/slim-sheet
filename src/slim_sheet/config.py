@@ -21,8 +21,9 @@ class Settings:
     strict_roots: bool = False  # True: refuse every path outside roots
     max_tokens: int = 1500
     max_cell_chars: int = 120
-    max_file_mb: int = 200
-    max_cells: int = 3_000_000  # cells per xlsx package before any full load; 0 = off
+    max_file_mb: int = 2048
+    max_cells: int = 50_000_000  # value cells a workbook may hold to be read; 0 = off
+    max_edit_cells: int = 5_000_000  # value cells a workbook may hold to be edited; 0 = off
     soffice: str | None = None  # LibreOffice binary for recalc; autodetected when unset
     brand: str | None = None  # built-in brand name or brand .json path (PLAN §16)
     audit_log: str | None = None  # JSONL file for per-call audit records (opt-in)
@@ -72,8 +73,9 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         strict_roots=_clean(env.get("SLIM_SHEET_STRICT_ROOTS")).lower() in ("1", "true", "yes"),
         max_tokens=_int(env, "SLIM_SHEET_MAX_TOKENS", 1500),
         max_cell_chars=_int(env, "SLIM_SHEET_MAX_CELL_CHARS", 120),
-        max_file_mb=_int(env, "SLIM_SHEET_MAX_FILE_MB", 200),
-        max_cells=_int(env, "SLIM_SHEET_MAX_CELLS", 3_000_000),
+        max_file_mb=_int(env, "SLIM_SHEET_MAX_FILE_MB", 2048),
+        max_cells=_int(env, "SLIM_SHEET_MAX_CELLS", 50_000_000),
+        max_edit_cells=_int(env, "SLIM_SHEET_MAX_EDIT_CELLS", 5_000_000),
         soffice=env.get("SLIM_SHEET_SOFFICE") or None,
         brand=_clean(env.get("SLIM_SHEET_BRAND")) or None,
         audit_log=_clean(env.get("SLIM_SHEET_AUDIT_LOG")) or None,
